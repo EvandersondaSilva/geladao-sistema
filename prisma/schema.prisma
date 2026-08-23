@@ -1,0 +1,367 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+}
+
+enum StatusPedido {
+  PENDENTE
+  CONFIRMADO
+  EM_ENTREGA
+  ENTREGUE
+  CANCELADO
+}
+
+enum StatusCaixa {
+  ABERTO
+  FECHADO
+}
+
+enum FormaPagamento {
+  DINHEIRO
+  CARTAO
+  PIX
+}
+
+enum TipoMovimento {
+  ENTRADA
+  SAIDA
+}
+
+enum MotivoMovimento {
+  VENDA
+  ESTORNO_CANCELAMENTO
+  REPOSICAO
+  AJUSTE_MANUAL
+}
+
+enum ComboGroupType {
+  CATEGORY_CHOICE
+  FIXED_PRODUCT
+  PRODUCT_CHOICE
+}
+
+model Settings {
+  id            String  @id @default(uuid())
+  isStoreOpen   Boolean @default(true)
+  minOrderValue Int     @default(1000) // em centavos
+  deliveryFee   Int     @default(0) // em centavos
+  pixKey        String? // chave pix exibida no checkout (delivery)
+  operadorPin   String? // PIN/senha compartilhada para liberar tela de PDV
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("settings")
+}
+
+model User {
+  id       String @id @default(uuid())
+  name     String
+  email    String @unique
+  password String
+  role     Role   @default(ADMIN)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+model Category {
+  id           String    @id @default(uuid())
+  name         String
+  displayOrder Int       @default(0)
+  products     Product[]
+
+  comboGroupCategories ComboGroupCategory[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("categories")
+}
+
+model Product {
+  id          String  @id @default(uuid())
+  name        String
+  description String?
+  price       Int // em centavos
+  imageUrl    String?
+  available   Boolean @default(true)
+
+  estoqueAtual  Int @default(0)
+  estoqueMinimo Int @default(0)
+
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  items OrderItem[]
+
+  comboGroupFixedItems     ComboGroupFixedItem[]
+  comboGroupChoiceProducts ComboGroupChoiceProduct[]
+  orderComboItems          OrderComboItem[]
+  movimentos               MovimentoEstoque[]
+  itensVenda               ItemVenda[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("products")
+}
+
+// ==========================================
+// PDV — Caixa, Venda, ItemVenda (prioridade atual)
+// ==========================================
+
+model Caixa {
+  id String @id @default(uuid())
+
+  status StatusCaixa @default(ABERTO)
+
+  valorAbertura            Int // centavos
+  valorFechamentoInformado Int? // centavos, preenchido só ao fechar
+
+  vendas Venda[]
+
+  abertoEm  DateTime  @default(now())
+  fechadoEm DateTime?
+
+  @@map("caixas")
+}
+
+model Venda {
+  id String @id @default(uuid())
+
+  caixaId String
+  caixa   Caixa  @relation(fields: [caixaId], references: [id])
+
+  total          Int // centavos
+  formaPagamento FormaPagamento
+
+  itens      ItemVenda[]
+  movimentos MovimentoEstoque[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("vendas")
+}
+
+model ItemVenda {
+  id String @id @default(uuid())
+
+  vendaId String
+  venda   Venda  @relation(fields: [vendaId], references: [id], onDelete: Cascade)
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+
+  quantidade    Int
+  precoUnitario Int // snapshot do preço no momento da venda
+
+  createdAt DateTime @default(now())
+
+  @@map("itens_venda")
+}
+
+// Auditoria de toda entrada/saída de estoque — vendas de balcão (PDV) e
+// pedidos de delivery (futuro) alimentam a mesma tabela.
+model MovimentoEstoque {
+  id String @id @default(uuid())
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+
+  tipo       TipoMovimento
+  motivo     MotivoMovimento
+  quantidade Int
+
+  // origem do movimento — só um dos dois é preenchido, dependendo do motivo
+  vendaId String?
+  venda   Venda?  @relation(fields: [vendaId], references: [id])
+
+  orderId String?
+  order   Order?  @relation(fields: [orderId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@map("movimentos_estoque")
+}
+
+// ==========================================
+// Delivery — pausado por enquanto, mantido para depois
+// ==========================================
+
+model Order {
+  id           String @id @default(uuid())
+  customerName String
+  phone        String
+  address      String
+
+  total       Int // em centavos
+  deliveryFee Int @default(0)
+
+  status StatusPedido @default(PENDENTE)
+
+  formaPagamento FormaPagamento
+  changeFor      Int?
+  noChangeNeeded Boolean        @default(false)
+
+  stockDeducted Boolean @default(false)
+  autoPrinted   Boolean @default(false)
+
+  items  OrderItem[]
+  combos OrderCombo[]
+
+  movimentos MovimentoEstoque[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id       String @id @default(uuid())
+  quantity Int
+
+  price Int
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("order_items")
+}
+
+model Combo {
+  id          String  @id @default(uuid())
+  name        String
+  description String?
+  price       Int
+  imageUrl    String?
+  available   Boolean @default(true)
+
+  groups      ComboGroup[]
+  orderCombos OrderCombo[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("combos")
+}
+
+model ComboGroup {
+  id      String @id @default(uuid())
+  comboId String
+  combo   Combo  @relation(fields: [comboId], references: [id], onDelete: Cascade)
+
+  type  ComboGroupType
+  label String
+
+  minQuantity Int  @default(1)
+  maxQuantity Int?
+
+  categories     ComboGroupCategory[]
+  fixedItems     ComboGroupFixedItem[]
+  choiceProducts ComboGroupChoiceProduct[]
+
+  orderComboItems OrderComboItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("combo_groups")
+}
+
+model ComboGroupCategory {
+  id           String     @id @default(uuid())
+  comboGroupId String
+  comboGroup   ComboGroup @relation(fields: [comboGroupId], references: [id], onDelete: Cascade)
+
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id])
+
+  @@unique([comboGroupId, categoryId])
+  @@map("combo_group_categories")
+}
+
+model ComboGroupFixedItem {
+  id           String     @id @default(uuid())
+  comboGroupId String
+  comboGroup   ComboGroup @relation(fields: [comboGroupId], references: [id], onDelete: Cascade)
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+
+  quantity Int @default(1)
+
+  @@unique([comboGroupId, productId])
+  @@map("combo_group_fixed_items")
+}
+
+model ComboGroupChoiceProduct {
+  id           String     @id @default(uuid())
+  comboGroupId String
+  comboGroup   ComboGroup @relation(fields: [comboGroupId], references: [id], onDelete: Cascade)
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+
+  @@unique([comboGroupId, productId])
+  @@map("combo_group_choice_products")
+}
+
+model OrderCombo {
+  id      String @id @default(uuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  comboId String
+  combo   Combo  @relation(fields: [comboId], references: [id])
+
+  price Int
+
+  items OrderComboItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("order_combos")
+}
+
+model OrderComboItem {
+  id           String     @id @default(uuid())
+  orderComboId String
+  orderCombo   OrderCombo @relation(fields: [orderComboId], references: [id], onDelete: Cascade)
+
+  comboGroupId String
+  comboGroup   ComboGroup @relation(fields: [comboGroupId], references: [id])
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  quantity Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("order_combo_items")
+}
