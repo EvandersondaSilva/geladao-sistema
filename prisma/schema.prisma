@@ -15,35 +15,35 @@ enum Role {
   ADMIN
 }
 
-enum StatusPedido {
-  PENDENTE
-  CONFIRMADO
-  EM_ENTREGA
-  ENTREGUE
-  CANCELADO
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
 }
 
-enum StatusCaixa {
-  ABERTO
-  FECHADO
+enum CashRegisterStatus {
+  OPEN
+  CLOSED
 }
 
-enum FormaPagamento {
-  DINHEIRO
-  CARTAO
+enum PaymentMethod {
+  CASH
+  CARD
   PIX
 }
 
-enum TipoMovimento {
-  ENTRADA
-  SAIDA
+enum StockMovementType {
+  INBOUND
+  OUTBOUND
 }
 
-enum MotivoMovimento {
-  VENDA
-  ESTORNO_CANCELAMENTO
-  REPOSICAO
-  AJUSTE_MANUAL
+enum StockMovementReason {
+  SALE
+  CANCELLATION_REVERSAL
+  RESTOCK
+  MANUAL_ADJUSTMENT
 }
 
 enum ComboGroupType {
@@ -55,10 +55,10 @@ enum ComboGroupType {
 model Settings {
   id            String  @id @default(uuid())
   isStoreOpen   Boolean @default(true)
-  minOrderValue Int     @default(1000) // em centavos
-  deliveryFee   Int     @default(0) // em centavos
-  pixKey        String? // chave pix exibida no checkout (delivery)
-  operadorPin   String? // PIN/senha compartilhada para liberar tela de PDV
+  minOrderValue Int     @default(1000) // in cents
+  deliveryFee   Int     @default(0) // in cents
+  pixKey        String? // pix key shown at delivery checkout
+  operatorPin   String? // shared PIN/password to unlock the PDV screen
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -97,12 +97,12 @@ model Product {
   id          String  @id @default(uuid())
   name        String
   description String?
-  price       Int // em centavos
+  price       Int // in cents
   imageUrl    String?
   available   Boolean @default(true)
 
-  estoqueAtual  Int @default(0)
-  estoqueMinimo Int @default(0)
+  currentStock Int @default(0)
+  minimumStock Int @default(0)
 
   categoryId String
   category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
@@ -112,8 +112,8 @@ model Product {
   comboGroupFixedItems     ComboGroupFixedItem[]
   comboGroupChoiceProducts ComboGroupChoiceProduct[]
   orderComboItems          OrderComboItem[]
-  movimentos               MovimentoEstoque[]
-  itensVenda               ItemVenda[]
+  stockMovements           StockMovement[]
+  saleItems                SaleItem[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -122,86 +122,86 @@ model Product {
 }
 
 // ==========================================
-// PDV — Caixa, Venda, ItemVenda (prioridade atual)
+// PDV — CashRegister, Sale, SaleItem (current priority)
 // ==========================================
 
-model Caixa {
+model CashRegister {
   id String @id @default(uuid())
 
-  status StatusCaixa @default(ABERTO)
+  status CashRegisterStatus @default(OPEN)
 
-  valorAbertura            Int // centavos
-  valorFechamentoInformado Int? // centavos, preenchido só ao fechar
+  openingAmount         Int // cents
+  reportedClosingAmount Int? // cents, filled in only when closing
 
-  vendas Venda[]
+  sales Sale[]
 
-  abertoEm  DateTime  @default(now())
-  fechadoEm DateTime?
+  openedAt DateTime  @default(now())
+  closedAt DateTime?
 
-  @@map("caixas")
+  @@map("cash_registers")
 }
 
-model Venda {
+model Sale {
   id String @id @default(uuid())
 
-  caixaId String
-  caixa   Caixa  @relation(fields: [caixaId], references: [id])
+  cashRegisterId String
+  cashRegister   CashRegister @relation(fields: [cashRegisterId], references: [id])
 
-  total          Int // centavos
-  formaPagamento FormaPagamento
+  total         Int // cents
+  paymentMethod PaymentMethod
 
-  itens      ItemVenda[]
-  movimentos MovimentoEstoque[]
+  items          SaleItem[]
+  stockMovements StockMovement[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@map("vendas")
+  @@map("sales")
 }
 
-model ItemVenda {
+model SaleItem {
   id String @id @default(uuid())
 
-  vendaId String
-  venda   Venda  @relation(fields: [vendaId], references: [id], onDelete: Cascade)
+  saleId String
+  sale   Sale   @relation(fields: [saleId], references: [id], onDelete: Cascade)
 
   productId String
   product   Product @relation(fields: [productId], references: [id])
 
-  quantidade    Int
-  precoUnitario Int // snapshot do preço no momento da venda
+  quantity  Int
+  unitPrice Int // snapshot of the price at the time of sale
 
   createdAt DateTime @default(now())
 
-  @@map("itens_venda")
+  @@map("sale_items")
 }
 
-// Auditoria de toda entrada/saída de estoque — vendas de balcão (PDV) e
-// pedidos de delivery (futuro) alimentam a mesma tabela.
-model MovimentoEstoque {
+// Audit trail for every stock in/out — counter sales (PDV) and delivery
+// orders (future) feed the same table.
+model StockMovement {
   id String @id @default(uuid())
 
   productId String
   product   Product @relation(fields: [productId], references: [id])
 
-  tipo       TipoMovimento
-  motivo     MotivoMovimento
-  quantidade Int
+  type     StockMovementType
+  reason   StockMovementReason
+  quantity Int
 
-  // origem do movimento — só um dos dois é preenchido, dependendo do motivo
-  vendaId String?
-  venda   Venda?  @relation(fields: [vendaId], references: [id])
+  // movement source — only one of the two is filled, depending on the reason
+  saleId String?
+  sale   Sale?   @relation(fields: [saleId], references: [id])
 
   orderId String?
   order   Order?  @relation(fields: [orderId], references: [id])
 
   createdAt DateTime @default(now())
 
-  @@map("movimentos_estoque")
+  @@map("stock_movements")
 }
 
 // ==========================================
-// Delivery — pausado por enquanto, mantido para depois
+// Delivery — paused for now, kept for later
 // ==========================================
 
 model Order {
@@ -210,14 +210,14 @@ model Order {
   phone        String
   address      String
 
-  total       Int // em centavos
+  total       Int // in cents
   deliveryFee Int @default(0)
 
-  status StatusPedido @default(PENDENTE)
+  status OrderStatus @default(PENDING)
 
-  formaPagamento FormaPagamento
+  paymentMethod  PaymentMethod
   changeFor      Int?
-  noChangeNeeded Boolean        @default(false)
+  noChangeNeeded Boolean       @default(false)
 
   stockDeducted Boolean @default(false)
   autoPrinted   Boolean @default(false)
@@ -225,7 +225,7 @@ model Order {
   items  OrderItem[]
   combos OrderCombo[]
 
-  movimentos MovimentoEstoque[]
+  stockMovements StockMovement[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

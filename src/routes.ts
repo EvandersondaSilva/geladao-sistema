@@ -4,21 +4,57 @@ import { createCategorySchema, updateCategorySchema } from "./schemas/categorySc
 import { CreateCategoryController } from "./controllers/category/createCategoryController";
 import { ListCategoryController } from "./controllers/category/listCategoryController";
 import { UpdateCategoryController } from "./controllers/category/updateCategoryController";
-import { listProductsSchema } from "./schemas/productSchema";
+import {
+  adjustProductStockSchema,
+  createProductSchema,
+  deleteProductSchema,
+  listProductsSchema,
+  updateProductSchema,
+} from "./schemas/productSchema";
 import { ListProductController } from "./controllers/product/listProductController";
+import { CreateProductController } from "./controllers/product/createProductController";
+import { UpdateProductController } from "./controllers/product/updateProductController";
+import { DeleteProductController } from "./controllers/product/deleteProductController";
+import { AdjustProductStockController } from "./controllers/product/adjustProductStockController";
+import { openCashRegisterSchema } from "./schemas/cashRegisterSchema";
+import { OpenCashRegisterController } from "./controllers/cashRegister/openCashRegisterController";
+import { createSaleSchema } from "./schemas/saleSchema";
+import { CreateSaleController } from "./controllers/sale/createSaleController";
 
 const routes = Router();
 
-// criando categoria
-routes.post("/categorias", validateSchema(createCategorySchema), new CreateCategoryController().handle);
+// create category
+routes.post("/categories", validateSchema(createCategorySchema), new CreateCategoryController().handle);
 
-// listar categorias
-routes.get("/categorias", new ListCategoryController().handle);
+// list categories
+routes.get("/categories", new ListCategoryController().handle);
 
-// editar categoria
-routes.patch("/categorias/:id", validateSchema(updateCategorySchema), new UpdateCategoryController().handle);
+// edit category
+routes.patch("/categories/:id", validateSchema(updateCategorySchema), new UpdateCategoryController().handle);
 
-// listar catálogo de produtos (público, com filtro opcional por categoria)
-routes.get("/produtos", validateSchema(listProductsSchema), new ListProductController().handle);
+// list product catalog (public, optional category filter)
+routes.get("/products", validateSchema(listProductsSchema), new ListProductController().handle);
+
+// create product
+routes.post("/products", validateSchema(createProductSchema), new CreateProductController().handle);
+
+// edit product (current stock is not editable here — use /products/:id/stock)
+routes.patch("/products/:id", validateSchema(updateProductSchema), new UpdateProductController().handle);
+
+// delete product (blocked if it already has sale/stock history)
+routes.delete("/products/:id", validateSchema(deleteProductSchema), new DeleteProductController().handle);
+
+// adjust product stock (creates a StockMovement)
+routes.post(
+  "/products/:id/stock",
+  validateSchema(adjustProductStockSchema),
+  new AdjustProductStockController().handle
+);
+
+// open cash register (PDV)
+routes.post("/cash-registers", validateSchema(openCashRegisterSchema), new OpenCashRegisterController().handle);
+
+// register a sale (PDV) — deducts stock and creates a StockMovement per item
+routes.post("/sales", validateSchema(createSaleSchema), new CreateSaleController().handle);
 
 export default routes;

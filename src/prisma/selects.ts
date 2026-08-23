@@ -5,8 +5,8 @@ export const productSelect = {
   price: true,
   imageUrl: true,
   available: true,
-  estoqueAtual: true,
-  estoqueMinimo: true,
+  currentStock: true,
+  minimumStock: true,
   categoryId: true,
   createdAt: true,
 } as const;

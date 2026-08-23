@@ -16,7 +16,7 @@ const validateSchema = (schema: ZodType) => {
         return res.status(400).json({
           error: "Erro validação",
           details: error.issues.map((issue) => ({
-            campo: issue.path.slice(1).join("."),
+            campo: issue.path.slice(1).join(".") || issue.path[0]?.toString() || "body",
             mensagem: issue.message,
           })),
         });
