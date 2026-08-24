@@ -16,8 +16,9 @@ import { CreateProductController } from "./controllers/product/createProductCont
 import { UpdateProductController } from "./controllers/product/updateProductController";
 import { DeleteProductController } from "./controllers/product/deleteProductController";
 import { AdjustProductStockController } from "./controllers/product/adjustProductStockController";
-import { openCashRegisterSchema } from "./schemas/cashRegisterSchema";
+import { closeCashRegisterSchema, openCashRegisterSchema } from "./schemas/cashRegisterSchema";
 import { OpenCashRegisterController } from "./controllers/cashRegister/openCashRegisterController";
+import { CloseCashRegisterController } from "./controllers/cashRegister/closeCashRegisterController";
 import { createSaleSchema } from "./schemas/saleSchema";
 import { CreateSaleController } from "./controllers/sale/createSaleController";
 
@@ -53,6 +54,13 @@ routes.post(
 
 // open cash register (PDV)
 routes.post("/cash-registers", validateSchema(openCashRegisterSchema), new OpenCashRegisterController().handle);
+
+// close cash register — computes expectedAmount/totalRevenue/difference on the fly, does not persist them
+routes.post(
+  "/cash-registers/:id/close",
+  validateSchema(closeCashRegisterSchema),
+  new CloseCashRegisterController().handle
+);
 
 // register a sale (PDV) — deducts stock and creates a StockMovement per item
 routes.post("/sales", validateSchema(createSaleSchema), new CreateSaleController().handle);

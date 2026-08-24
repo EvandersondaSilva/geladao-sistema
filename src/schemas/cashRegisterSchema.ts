@@ -8,3 +8,15 @@ export const openCashRegisterSchema = z.object({
       .min(0, { message: "openingAmount não pode ser negativo" }),
   }),
 });
+
+export const closeCashRegisterSchema = z.object({
+  params: z.object({
+    id: z.string().min(1, { message: "Id do caixa é obrigatório" }),
+  }),
+  body: z.object({
+    reportedClosingAmount: z
+      .number({ message: "reportedClosingAmount precisa ser um número" })
+      .int({ message: "reportedClosingAmount precisa ser um número inteiro (centavos)" })
+      .min(0, { message: "reportedClosingAmount não pode ser negativo" }),
+  }),
+});
