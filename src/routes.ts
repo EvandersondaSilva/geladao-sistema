@@ -16,6 +16,7 @@ import { CreateProductController } from "./controllers/product/createProductCont
 import { UpdateProductController } from "./controllers/product/updateProductController";
 import { DeleteProductController } from "./controllers/product/deleteProductController";
 import { AdjustProductStockController } from "./controllers/product/adjustProductStockController";
+import { ListLowStockProductController } from "./controllers/product/listLowStockProductController";
 import {
   closeCashRegisterSchema,
   listCashRegistersSchema,
@@ -24,9 +25,13 @@ import {
 import { OpenCashRegisterController } from "./controllers/cashRegister/openCashRegisterController";
 import { CloseCashRegisterController } from "./controllers/cashRegister/closeCashRegisterController";
 import { ListCashRegisterController } from "./controllers/cashRegister/listCashRegisterController";
-import { createSaleSchema, listSalesSchema } from "./schemas/saleSchema";
+import { GetCurrentCashRegisterController } from "./controllers/cashRegister/getCurrentCashRegisterController";
+import { createSaleSchema, getSaleSchema, listSalesSchema } from "./schemas/saleSchema";
 import { CreateSaleController } from "./controllers/sale/createSaleController";
 import { ListSaleController } from "./controllers/sale/listSaleController";
+import { GetSaleController } from "./controllers/sale/getSaleController";
+import { listStockMovementsSchema } from "./schemas/stockMovementSchema";
+import { ListStockMovementController } from "./controllers/stockMovement/listStockMovementController";
 
 const routes = Router();
 
@@ -58,6 +63,12 @@ routes.post(
   new AdjustProductStockController().handle
 );
 
+// products with currentStock below minimumStock (low-stock alert)
+routes.get("/products/low-stock", new ListLowStockProductController().handle);
+
+// currently open cash register, if any (null otherwise)
+routes.get("/cash-registers/current", new GetCurrentCashRegisterController().handle);
+
 // list cash registers (PDV history), optional status filter
 routes.get("/cash-registers", validateSchema(listCashRegistersSchema), new ListCashRegisterController().handle);
 
@@ -74,7 +85,17 @@ routes.post(
 // list sales (PDV history), optional cashRegisterId filter
 routes.get("/sales", validateSchema(listSalesSchema), new ListSaleController().handle);
 
+// sale detail with items
+routes.get("/sales/:id", validateSchema(getSaleSchema), new GetSaleController().handle);
+
 // register a sale (PDV) — deducts stock and creates a StockMovement per item
 routes.post("/sales", validateSchema(createSaleSchema), new CreateSaleController().handle);
+
+// stock movement audit trail (filter by productId/reason/date range)
+routes.get(
+  "/stock-movements",
+  validateSchema(listStockMovementsSchema),
+  new ListStockMovementController().handle
+);
 
 export default routes;

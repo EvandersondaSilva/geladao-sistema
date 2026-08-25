@@ -6,6 +6,12 @@ export const listSalesSchema = z.object({
   }),
 });
 
+export const getSaleSchema = z.object({
+  params: z.object({
+    id: z.string().min(1, { message: "Id da venda é obrigatório" }),
+  }),
+});
+
 export const createSaleSchema = z.object({
   body: z.object({
     cashRegisterId: z
