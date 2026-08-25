@@ -1,5 +1,11 @@
 import { z } from "zod";
 
+export const listSalesSchema = z.object({
+  query: z.object({
+    cashRegisterId: z.string().min(1).optional(),
+  }),
+});
+
 export const createSaleSchema = z.object({
   body: z.object({
     cashRegisterId: z

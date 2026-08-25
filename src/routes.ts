@@ -16,11 +16,17 @@ import { CreateProductController } from "./controllers/product/createProductCont
 import { UpdateProductController } from "./controllers/product/updateProductController";
 import { DeleteProductController } from "./controllers/product/deleteProductController";
 import { AdjustProductStockController } from "./controllers/product/adjustProductStockController";
-import { closeCashRegisterSchema, openCashRegisterSchema } from "./schemas/cashRegisterSchema";
+import {
+  closeCashRegisterSchema,
+  listCashRegistersSchema,
+  openCashRegisterSchema,
+} from "./schemas/cashRegisterSchema";
 import { OpenCashRegisterController } from "./controllers/cashRegister/openCashRegisterController";
 import { CloseCashRegisterController } from "./controllers/cashRegister/closeCashRegisterController";
-import { createSaleSchema } from "./schemas/saleSchema";
+import { ListCashRegisterController } from "./controllers/cashRegister/listCashRegisterController";
+import { createSaleSchema, listSalesSchema } from "./schemas/saleSchema";
 import { CreateSaleController } from "./controllers/sale/createSaleController";
+import { ListSaleController } from "./controllers/sale/listSaleController";
 
 const routes = Router();
 
@@ -52,6 +58,9 @@ routes.post(
   new AdjustProductStockController().handle
 );
 
+// list cash registers (PDV history), optional status filter
+routes.get("/cash-registers", validateSchema(listCashRegistersSchema), new ListCashRegisterController().handle);
+
 // open cash register (PDV)
 routes.post("/cash-registers", validateSchema(openCashRegisterSchema), new OpenCashRegisterController().handle);
 
@@ -61,6 +70,9 @@ routes.post(
   validateSchema(closeCashRegisterSchema),
   new CloseCashRegisterController().handle
 );
+
+// list sales (PDV history), optional cashRegisterId filter
+routes.get("/sales", validateSchema(listSalesSchema), new ListSaleController().handle);
 
 // register a sale (PDV) — deducts stock and creates a StockMovement per item
 routes.post("/sales", validateSchema(createSaleSchema), new CreateSaleController().handle);

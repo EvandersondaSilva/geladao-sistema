@@ -1,5 +1,11 @@
 import { z } from "zod";
 
+export const listCashRegistersSchema = z.object({
+  query: z.object({
+    status: z.enum(["OPEN", "CLOSED"], { message: "status precisa ser OPEN ou CLOSED" }).optional(),
+  }),
+});
+
 export const openCashRegisterSchema = z.object({
   body: z.object({
     openingAmount: z
