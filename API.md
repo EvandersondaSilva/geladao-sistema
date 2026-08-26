@@ -7,6 +7,15 @@
 > 2026-08-23) — as rotas abaixo já refletem isso (`cash-registers`, `sales`, `products`...), diferente de
 > versões antigas deste documento que ainda citavam `/caixa`, `/vendas` em português.
 
+## Autenticação (PIN do operador)
+
+Sem login individual de funcionário — decisão consciente do cliente, quem opera o caixa é o próprio admin.
+Como proteção mínima do lado da API (o front sozinho não impede alguém de chamar a API direto), toda rota de
+escrita (`POST`/`PATCH`/`DELETE`) exige o header `x-operator-pin` com o PIN compartilhado cadastrado em
+`Settings.operatorPin`. Rotas de leitura (`GET`) continuam públicas. Se `Settings.operatorPin` ainda não
+estiver configurado no banco, toda rota de escrita responde `503`. Configure o PIN manualmente (`npx prisma
+studio`, tabela `settings`) até existir uma rota de configuração dedicada.
+
 ## PDV — CashRegister (Caixa)
 
 - `POST /cash-registers` — abre um caixa (`openingAmount`); bloqueia se já existir caixa OPEN (transação Serializable) `[feito]`

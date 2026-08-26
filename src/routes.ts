@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { validateSchema } from "./middlewares/validateSchema";
+import { checkOperatorPin } from "./middlewares/checkOperatorPin";
 import { createCategorySchema, updateCategorySchema } from "./schemas/categorySchema";
 import { CreateCategoryController } from "./controllers/category/createCategoryController";
 import { ListCategoryController } from "./controllers/category/listCategoryController";
@@ -36,29 +37,55 @@ import { ListStockMovementController } from "./controllers/stockMovement/listSto
 const routes = Router();
 
 // create category
-routes.post("/categories", validateSchema(createCategorySchema), new CreateCategoryController().handle);
+routes.post(
+  "/categories",
+  checkOperatorPin,
+  validateSchema(createCategorySchema),
+  new CreateCategoryController().handle
+);
 
 // list categories
 routes.get("/categories", new ListCategoryController().handle);
 
 // edit category
-routes.patch("/categories/:id", validateSchema(updateCategorySchema), new UpdateCategoryController().handle);
+routes.patch(
+  "/categories/:id",
+  checkOperatorPin,
+  validateSchema(updateCategorySchema),
+  new UpdateCategoryController().handle
+);
 
 // list product catalog (public, optional category filter)
 routes.get("/products", validateSchema(listProductsSchema), new ListProductController().handle);
 
 // create product
-routes.post("/products", validateSchema(createProductSchema), new CreateProductController().handle);
+routes.post(
+  "/products",
+  checkOperatorPin,
+  validateSchema(createProductSchema),
+  new CreateProductController().handle
+);
 
 // edit product (current stock is not editable here — use /products/:id/stock)
-routes.patch("/products/:id", validateSchema(updateProductSchema), new UpdateProductController().handle);
+routes.patch(
+  "/products/:id",
+  checkOperatorPin,
+  validateSchema(updateProductSchema),
+  new UpdateProductController().handle
+);
 
 // delete product (blocked if it already has sale/stock history)
-routes.delete("/products/:id", validateSchema(deleteProductSchema), new DeleteProductController().handle);
+routes.delete(
+  "/products/:id",
+  checkOperatorPin,
+  validateSchema(deleteProductSchema),
+  new DeleteProductController().handle
+);
 
 // adjust product stock (creates a StockMovement)
 routes.post(
   "/products/:id/stock",
+  checkOperatorPin,
   validateSchema(adjustProductStockSchema),
   new AdjustProductStockController().handle
 );
@@ -73,11 +100,17 @@ routes.get("/cash-registers/current", new GetCurrentCashRegisterController().han
 routes.get("/cash-registers", validateSchema(listCashRegistersSchema), new ListCashRegisterController().handle);
 
 // open cash register (PDV)
-routes.post("/cash-registers", validateSchema(openCashRegisterSchema), new OpenCashRegisterController().handle);
+routes.post(
+  "/cash-registers",
+  checkOperatorPin,
+  validateSchema(openCashRegisterSchema),
+  new OpenCashRegisterController().handle
+);
 
 // close cash register — computes expectedAmount/totalRevenue/difference on the fly, does not persist them
 routes.post(
   "/cash-registers/:id/close",
+  checkOperatorPin,
   validateSchema(closeCashRegisterSchema),
   new CloseCashRegisterController().handle
 );
@@ -89,7 +122,7 @@ routes.get("/sales", validateSchema(listSalesSchema), new ListSaleController().h
 routes.get("/sales/:id", validateSchema(getSaleSchema), new GetSaleController().handle);
 
 // register a sale (PDV) — deducts stock and creates a StockMovement per item
-routes.post("/sales", validateSchema(createSaleSchema), new CreateSaleController().handle);
+routes.post("/sales", checkOperatorPin, validateSchema(createSaleSchema), new CreateSaleController().handle);
 
 // stock movement audit trail (filter by productId/reason/date range)
 routes.get(
