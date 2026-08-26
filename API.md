@@ -18,6 +18,13 @@ escrita (`POST`/`PATCH`/`DELETE`) exige o header `x-operator-pin` com o PIN comp
 `Settings.operatorPin`. Rotas de leitura (`GET`) continuam públicas. Se `Settings.operatorPin` ainda não
 estiver configurado no banco, toda rota de escrita responde `503`.
 
+**Decisão de UX (front)**: o operador digita o PIN uma vez pra "destravar a tela", não a cada ação. O front
+guarda o PIN em `sessionStorage` (sobrevive a refresh da aba, não a fechar o navegador) e anexa ele
+automaticamente como `x-operator-pin` em toda chamada de escrita. Um botão de "trancar caixa" limpa o
+`sessionStorage` e volta pra tela de PIN. `localStorage` foi descartado de propósito — persistir o PIN
+indefinidamente anularia a ideia de tela travada. Fluxo de entrada: `GET /operator-pin/status` decide se a
+tela mostra "definir PIN" (`configured: false`) ou "digite o PIN" (`configured: true`).
+
 ### `GET /operator-pin/status` `[feito]`
 
 Retorna se o PIN já foi configurado — nunca o valor do PIN.
