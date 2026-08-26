@@ -13,8 +13,11 @@ Sem login individual de funcionário — decisão consciente do cliente, quem op
 Como proteção mínima do lado da API (o front sozinho não impede alguém de chamar a API direto), toda rota de
 escrita (`POST`/`PATCH`/`DELETE`) exige o header `x-operator-pin` com o PIN compartilhado cadastrado em
 `Settings.operatorPin`. Rotas de leitura (`GET`) continuam públicas. Se `Settings.operatorPin` ainda não
-estiver configurado no banco, toda rota de escrita responde `503`. Configure o PIN manualmente (`npx prisma
-studio`, tabela `settings`) até existir uma rota de configuração dedicada.
+estiver configurado no banco, toda rota de escrita responde `503`.
+
+- `GET /operator-pin/status` — retorna `{ configured: boolean }`, nunca o valor do PIN `[feito]`
+- `PATCH /operator-pin` — define o PIN a primeira vez (`newPin`, sem exigir nada) ou troca um já existente
+  (exige `currentPin` correto); nunca ecoa o PIN na resposta `[feito]`
 
 ## PDV — CashRegister (Caixa)
 

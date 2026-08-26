@@ -33,6 +33,9 @@ import { ListSaleController } from "./controllers/sale/listSaleController";
 import { GetSaleController } from "./controllers/sale/getSaleController";
 import { listStockMovementsSchema } from "./schemas/stockMovementSchema";
 import { ListStockMovementController } from "./controllers/stockMovement/listStockMovementController";
+import { updateOperatorPinSchema } from "./schemas/settingsSchema";
+import { GetOperatorPinStatusController } from "./controllers/settings/getOperatorPinStatusController";
+import { UpdateOperatorPinController } from "./controllers/settings/updateOperatorPinController";
 
 const routes = Router();
 
@@ -129,6 +132,18 @@ routes.get(
   "/stock-movements",
   validateSchema(listStockMovementsSchema),
   new ListStockMovementController().handle
+);
+
+// whether an operator PIN is already configured (never exposes the PIN itself)
+routes.get("/operator-pin/status", new GetOperatorPinStatusController().handle);
+
+// set the operator PIN for the first time, or change it (requires currentPin once one exists)
+// intentionally NOT behind checkOperatorPin — bootstrapping the very first PIN would be a chicken-and-egg
+// problem, and changing an existing one is already gated by requiring currentPin
+routes.patch(
+  "/operator-pin",
+  validateSchema(updateOperatorPinSchema),
+  new UpdateOperatorPinController().handle
 );
 
 export default routes;
