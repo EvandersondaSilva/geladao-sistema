@@ -26,9 +26,25 @@ Segue a mesma convenção do projeto irmão `espetinho-delivery` (`sistema-espet
 - Controllers NUNCA acessam Prisma direto — sempre passam por service
 
 ## Domain Rules (crítico)
+
+### Estoque (vale pra todo o domínio)
+- Toda baixa/entrada de estoque (venda no balcão, item de comanda, produto avulso ou item de combo) gera registro em `MovimentoEstoque` — nunca decrementa `Produto.estoqueAtual` sem esse registro
+
+### Comanda (`Tab` / `TabItem`) — consumo por cliente
+- Cliente chega, funcionário abre `Tab` no nome dele (`customerName`, texto livre — não existe cadastro de cliente), vai lançando item conforme ele consome, e só fecha (escolhendo `paymentMethod`) quando ele vai embora
+- `Tab` exige `CashRegister` com status `OPEN` pra abrir — mesma regra da `Sale`
+- **Baixa de estoque é no lançamento do item, não no fechamento** — o produto já saiu da geladeira quando o cliente bebe, mesmo sem ter pago. Cada `TabItem` gera `StockMovement` (`OUTBOUND`/`SALE`, com `tabItemId`) dentro de `prisma.$transaction`
+- Por consequência, fechar comanda NÃO gera `StockMovement` — seria contar em dobro
+- `Tab` é entidade independente: fechar comanda **não** cria `Sale`. Toda `Sale` do código nasce junto com a baixa de estoque e o `StockMovement{saleId}` na mesma transação; uma `Sale` vinda de comanda não teria movimento nenhum e criaria dois tipos de `Sale` indistinguíveis na mesma tabela. Custo aceito: relatório de faturamento soma `Sale` + `Tab` fechada
+- `Tab.total` nunca é persistido — sempre recalculado do `TabItem.unitPrice` (snapshot do preço no lançamento), igual `expectedAmount`/`totalRevenue` do caixa
+- Remover item lançado por engano é **cancelamento lógico** (`TabItem.cancelledAt`), nunca `DELETE`: a linha precisa sobreviver pra que a baixa original e o estorno (`INBOUND`/`CANCELLATION_REVERSAL`) continuem apontando pra um `tabItemId` real. Item cancelado é filtrado de toda leitura e do total
+- Não fecha comanda sem nenhum item ativo; não lança item em comanda `CLOSED`
+- Fechamento de caixa: `expectedAmount`/`totalRevenue` somam `Sale` + `Tab` fechada do mesmo caixa. `Tab.total` não é coluna, então não dá pra agregar em SQL — soma em JS a partir dos itens
+- Comanda `OPEN` **com itens** bloqueia o fechamento do caixa (erro lista os nomes). Comanda `OPEN` vazia não bloqueia de propósito — ela também não pode ser fechada, então bloquear por causa dela travaria o caixa pra sempre
+
+### Combo (delivery — pausado)
 - Combo tem `ComboGrupo` (ex: "Escolha 2 refrigerantes") com `quantidadeEscolha`
 - Cliente pode repetir produto dentro do grupo — soma de `ItemPedidoComboEscolha.quantidade` por grupo DEVE ser exatamente igual a `ComboGrupo.quantidadeEscolha`
-- Toda baixa de estoque (produto avulso ou item de combo) gera registro em `MovimentoEstoque` — nunca decrementa `Produto.estoqueAtual` sem esse registro
 - Validação de pedido com combo, antes de gerar `MovimentoEstoque`:
   1. Todo `ComboGrupo` obrigatório tem escolha registrada
   2. Soma de quantidade por grupo bate com `quantidadeEscolha`

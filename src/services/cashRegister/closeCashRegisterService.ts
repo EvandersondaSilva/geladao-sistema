@@ -1,5 +1,6 @@
 import prismaClient from "../../prisma";
 import { AppError } from "../../errors/AppError";
+import { calculateTabTotal } from "../tab/calculateTabTotal";
 
 interface CloseCashRegisterRequest {
   id: string;
@@ -23,7 +24,26 @@ class CloseCashRegisterService {
           throw new AppError("Caixa já está fechado", 409);
         }
 
-        const [cashSales, allSales] = await Promise.all([
+        // An open tab is money still on the table — its items are already out of
+        // stock but nobody has paid yet, so the register can't be reconciled.
+        // Empty tabs are ignored on purpose: they can't be closed either (a tab
+        // needs at least one item), so blocking on them would deadlock the close.
+        const openTabs = await tx.tab.findMany({
+          where: { cashRegisterId: id, status: "OPEN", items: { some: { cancelledAt: null } } },
+          select: { customerName: true },
+          orderBy: { openedAt: "asc" },
+        });
+
+        if (openTabs.length > 0) {
+          const names = openTabs.map((tab) => tab.customerName).join(", ");
+
+          throw new AppError(
+            `Existem comandas abertas: ${names} — feche antes de fechar o caixa`,
+            409
+          );
+        }
+
+        const [cashSales, allSales, closedTabs] = await Promise.all([
           tx.sale.aggregate({
             where: { cashRegisterId: id, paymentMethod: "CASH" },
             _sum: { total: true },
@@ -32,10 +52,31 @@ class CloseCashRegisterService {
             where: { cashRegisterId: id },
             _sum: { total: true },
           }),
+          // Tab.total is not persisted, so it can't be aggregated in SQL — the
+          // closed tabs of a single register are few enough to sum from their
+          // item price snapshots here.
+          tx.tab.findMany({
+            where: { cashRegisterId: id, status: "CLOSED" },
+            select: {
+              paymentMethod: true,
+              items: { where: { cancelledAt: null }, select: { quantity: true, unitPrice: true } },
+            },
+          }),
         ]);
 
-        const expectedAmount = current.openingAmount + (cashSales._sum.total ?? 0);
-        const totalRevenue = allSales._sum.total ?? 0;
+        const closedTabsTotal = closedTabs.reduce(
+          (acc, tab) => acc + calculateTabTotal(tab.items),
+          0
+        );
+
+        const closedTabsCashTotal = closedTabs.reduce(
+          (acc, tab) => (tab.paymentMethod === "CASH" ? acc + calculateTabTotal(tab.items) : acc),
+          0
+        );
+
+        const expectedAmount =
+          current.openingAmount + (cashSales._sum.total ?? 0) + closedTabsCashTotal;
+        const totalRevenue = (allSales._sum.total ?? 0) + closedTabsTotal;
 
         const updated = await tx.cashRegister.update({
           where: { id },

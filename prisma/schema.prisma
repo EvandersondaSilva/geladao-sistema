@@ -28,6 +28,11 @@ enum CashRegisterStatus {
   CLOSED
 }
 
+enum TabStatus {
+  OPEN
+  CLOSED
+}
+
 enum PaymentMethod {
   CASH
   CARD
@@ -114,6 +119,7 @@ model Product {
   orderComboItems          OrderComboItem[]
   stockMovements           StockMovement[]
   saleItems                SaleItem[]
+  tabItems                 TabItem[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -134,6 +140,7 @@ model CashRegister {
   reportedClosingAmount Int? // cents, filled in only when closing
 
   sales Sale[]
+  tabs  Tab[]
 
   openedAt DateTime  @default(now())
   closedAt DateTime?
@@ -176,6 +183,55 @@ model SaleItem {
   @@map("sale_items")
 }
 
+// Open bar tab ("comanda"): the customer consumes over time and only pays when
+// leaving. Deliberately NOT a Sale — stock is deducted item by item as the item
+// is added, so a Tab never produces the Sale+StockMovement pair that every row
+// in `sales` is expected to have. Revenue reports aggregate Sale + closed Tab.
+model Tab {
+  id String @id @default(uuid())
+
+  customerName String // free text, there is no customer registry
+
+  status TabStatus @default(OPEN)
+
+  cashRegisterId String
+  cashRegister   CashRegister @relation(fields: [cashRegisterId], references: [id])
+
+  // only filled in on close — an open tab has not chosen how it will pay yet
+  paymentMethod PaymentMethod?
+
+  items TabItem[]
+
+  openedAt DateTime  @default(now())
+  closedAt DateTime?
+
+  @@map("tabs")
+}
+
+model TabItem {
+  id String @id @default(uuid())
+
+  tabId String
+  tab   Tab    @relation(fields: [tabId], references: [id], onDelete: Cascade)
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+
+  quantity  Int
+  unitPrice Int // snapshot of the price at the moment the item was added
+
+  // Removing an item mistakenly added is a soft cancel, never a DELETE: the row
+  // has to survive so the OUTBOUND movement and its CANCELLATION_REVERSAL both
+  // keep pointing at it. Cancelled items are excluded from the tab and total.
+  cancelledAt DateTime?
+
+  stockMovements StockMovement[]
+
+  createdAt DateTime @default(now())
+
+  @@map("tab_items")
+}
+
 // Audit trail for every stock in/out — counter sales (PDV) and delivery
 // orders (future) feed the same table.
 model StockMovement {
@@ -188,12 +244,15 @@ model StockMovement {
   reason   StockMovementReason
   quantity Int
 
-  // movement source — only one of the two is filled, depending on the reason
+  // movement source — at most one of the three is filled, depending on the reason
   saleId String?
   sale   Sale?   @relation(fields: [saleId], references: [id])
 
   orderId String?
   order   Order?  @relation(fields: [orderId], references: [id])
+
+  tabItemId String?
+  tabItem   TabItem? @relation(fields: [tabItemId], references: [id])
 
   createdAt DateTime @default(now())
 

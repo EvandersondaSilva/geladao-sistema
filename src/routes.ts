@@ -31,6 +31,20 @@ import { createSaleSchema, getSaleSchema, listSalesSchema } from "./schemas/sale
 import { CreateSaleController } from "./controllers/sale/createSaleController";
 import { ListSaleController } from "./controllers/sale/listSaleController";
 import { GetSaleController } from "./controllers/sale/getSaleController";
+import {
+  addTabItemSchema,
+  closeTabSchema,
+  getTabSchema,
+  listTabsSchema,
+  openTabSchema,
+  removeTabItemSchema,
+} from "./schemas/tabSchema";
+import { OpenTabController } from "./controllers/tab/openTabController";
+import { ListTabController } from "./controllers/tab/listTabController";
+import { GetTabController } from "./controllers/tab/getTabController";
+import { AddTabItemController } from "./controllers/tab/addTabItemController";
+import { RemoveTabItemController } from "./controllers/tab/removeTabItemController";
+import { CloseTabController } from "./controllers/tab/closeTabController";
 import { listStockMovementsSchema } from "./schemas/stockMovementSchema";
 import { ListStockMovementController } from "./controllers/stockMovement/listStockMovementController";
 import { updateOperatorPinSchema } from "./schemas/settingsSchema";
@@ -126,6 +140,39 @@ routes.get("/sales/:id", validateSchema(getSaleSchema), new GetSaleController().
 
 // register a sale (PDV) — deducts stock and creates a StockMovement per item
 routes.post("/sales", checkOperatorPin, validateSchema(createSaleSchema), new CreateSaleController().handle);
+
+// list tabs (comandas), optional status filter — ?status=OPEN is the "who is drinking now" view
+routes.get("/tabs", validateSchema(listTabsSchema), new ListTabController().handle);
+
+// tab detail with its items and the total computed on the fly
+routes.get("/tabs/:id", validateSchema(getTabSchema), new GetTabController().handle);
+
+// open a tab for a customer (by name only) — requires an OPEN cash register
+routes.post("/tabs", checkOperatorPin, validateSchema(openTabSchema), new OpenTabController().handle);
+
+// add an item to an open tab — deducts stock and creates a StockMovement right away
+routes.post(
+  "/tabs/:id/items",
+  checkOperatorPin,
+  validateSchema(addTabItemSchema),
+  new AddTabItemController().handle
+);
+
+// remove an item added by mistake — reverses the stock (INBOUND/CANCELLATION_REVERSAL)
+routes.delete(
+  "/tabs/:id/items/:itemId",
+  checkOperatorPin,
+  validateSchema(removeTabItemSchema),
+  new RemoveTabItemController().handle
+);
+
+// close the tab — picks the payment method, does NOT touch stock (already deducted per item)
+routes.post(
+  "/tabs/:id/close",
+  checkOperatorPin,
+  validateSchema(closeTabSchema),
+  new CloseTabController().handle
+);
 
 // stock movement audit trail (filter by productId/reason/date range)
 routes.get(

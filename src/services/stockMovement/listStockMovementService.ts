@@ -30,6 +30,7 @@ class ListStockMovementService {
           quantity: true,
           saleId: true,
           orderId: true,
+          tabItemId: true,
           createdAt: true,
         },
         orderBy: { createdAt: "desc" },

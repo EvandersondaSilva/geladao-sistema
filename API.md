@@ -116,8 +116,16 @@ Lista caixas, mais recente primeiro. Filtro opcional `?status=OPEN|CLOSED`.
 
 ### `POST /cash-registers/:id/close` `[feito]`
 
-Fecha o caixa. Calcula na hora (não persiste) `expectedAmount` (abertura + vendas em `CASH`),
-`totalRevenue` (todas as vendas, qualquer forma de pagamento) e `difference`. Requer `x-operator-pin`.
+Fecha o caixa. Calcula na hora (não persiste) `expectedAmount` (abertura + recebido em `CASH`),
+`totalRevenue` (tudo, qualquer forma de pagamento) e `difference`. Requer `x-operator-pin`.
+
+Os dois valores somam **`Sale` + comandas (`Tab`) já fechadas** no mesmo caixa — como `Tab` é entidade
+independente (não vira `Sale`), o faturamento de comanda entra por essa soma extra. Comandas ainda `OPEN`
+não entram: elas nem deixam o caixa fechar (ver abaixo).
+
+Bloqueia (`409`) se existir comanda `OPEN` **com itens** nesse caixa — é dinheiro que ainda está na mesa.
+Comanda aberta e vazia é ignorada de propósito: ela também não pode ser fechada (comanda sem item não
+fecha), então bloquear por causa dela travaria o caixa pra sempre.
 
 ```json
 // request
@@ -135,6 +143,9 @@ Fecha o caixa. Calcula na hora (não persiste) `expectedAmount` (abertura + vend
   "totalRevenue": 2500,
   "difference": 0
 }
+
+// 409 — comanda aberta pendente
+{ "error": "Existem comandas abertas: João, Marcos — feche antes de fechar o caixa" }
 
 // 409 — já fechado, ou 404 — não encontrado
 { "error": "Caixa já está fechado" }
@@ -210,6 +221,152 @@ Detalhe de uma venda com itens. `404` se não existir.
   "items": [ { "id": "...", "productId": "...", "quantity": 3, "unitPrice": 500 } ]
 }
 ```
+
+---
+
+## PDV — Tab (Comanda)
+
+Consumo por cliente ao longo do tempo: o funcionário abre a comanda no nome da pessoa (só texto livre, não
+existe cadastro de cliente), vai lançando item conforme ela consome, e só fecha — escolhendo a forma de
+pagamento — quando ela vai embora.
+
+**Baixa de estoque acontece a cada item lançado, não no fechamento** — o produto já saiu da geladeira
+quando o cliente bebe, mesmo sem ter pago ainda. Cada `POST /tabs/:id/items` gera `StockMovement`
+(`OUTBOUND`/`SALE`) dentro de `prisma.$transaction`, igual `POST /sales`. Por consequência,
+`POST /tabs/:id/close` **não** gera nenhum movimento de estoque — isso seria contar em dobro.
+
+`Tab` é entidade independente: fechar comanda **não** cria uma `Sale`. Motivo: no código toda `Sale` nasce
+junto com a baixa de estoque e o `StockMovement{saleId}` na mesma transação — uma `Sale` vinda de comanda
+não teria movimento nenhum (a baixa já ocorreu item a item), e passariam a existir dois tipos de `Sale`
+indistinguíveis na mesma tabela. Em troca, relatórios de faturamento precisam somar `Sale` + `Tab`
+fechada (o fechamento de caixa já faz isso).
+
+`total` nunca é persistido — é sempre recalculado a partir do `unitPrice` (snapshot de quando o item foi
+lançado), mesma decisão de `expectedAmount`/`totalRevenue` no caixa.
+
+### `POST /tabs` `[feito]`
+
+Abre uma comanda. Exige caixa `OPEN`. Requer `x-operator-pin`.
+
+```json
+// request
+{ "customerName": "João", "cashRegisterId": "7361c4c8-8cd1-4675-972c-30a8c9fc6c58" }
+
+// 201
+{
+  "id": "a19dc612-6b24-447e-b969-16f48d6b50b8",
+  "customerName": "João",
+  "status": "OPEN",
+  "cashRegisterId": "7361c4c8-8cd1-4675-972c-30a8c9fc6c58",
+  "paymentMethod": null,
+  "openedAt": "2026-08-27T05:10:42.939Z",
+  "closedAt": null,
+  "items": [],
+  "total": 0
+}
+
+// 409 — não há caixa aberto
+{ "error": "Caixa não está aberto" }
+```
+
+### `GET /tabs` `[feito]`
+
+Lista comandas com itens e total, mais recente primeiro. Filtro opcional `?status=OPEN|CLOSED` —
+`?status=OPEN` é a visão "quem está consumindo agora".
+
+```json
+// 200
+[
+  {
+    "id": "a19dc612-6b24-447e-b969-16f48d6b50b8",
+    "customerName": "João",
+    "status": "OPEN",
+    "cashRegisterId": "7361c4c8-8cd1-4675-972c-30a8c9fc6c58",
+    "paymentMethod": null,
+    "openedAt": "2026-08-27T05:10:42.939Z",
+    "closedAt": null,
+    "items": [
+      { "id": "ae275e08-2b20-4ca8-8c83-1ec14ebd39c9", "productId": "a65b8d90-d220-4674-a4d2-d30779c52c88", "quantity": 3, "unitPrice": 500, "createdAt": "2026-08-27T05:10:43.056Z" }
+    ],
+    "total": 1500
+  }
+]
+```
+
+### `GET /tabs/:id` `[feito]`
+
+Detalhe da comanda com itens e `total` calculado na hora. `404` se não existir.
+
+### `POST /tabs/:id/items` `[feito]` — requer `x-operator-pin`
+
+Lança um item na comanda aberta. Decrementa `Product.currentStock` e cria o `StockMovement` na mesma
+transação. Responde com a comanda inteira já atualizada (inclusive o novo `total`), pra tela do PDV não
+precisar de um `GET` logo em seguida.
+
+```json
+// request
+{ "productId": "a65b8d90-d220-4674-a4d2-d30779c52c88", "quantity": 3 }
+
+// 201 — mesmo shape de GET /tabs/:id, com o item novo e o total recalculado
+
+// 409 — comanda fechada
+{ "error": "Comanda já está fechada" }
+
+// 409 — estoque insuficiente
+{ "error": "Estoque insuficiente: disponível 48, solicitado 9999" }
+```
+
+### `DELETE /tabs/:id/items/:itemId` `[feito]` — requer `x-operator-pin`
+
+Remove item lançado por engano e **estorna o estoque** (`StockMovement` `INBOUND`/`CANCELLATION_REVERSAL`).
+Só funciona com a comanda ainda `OPEN`. Resposta `204` sem corpo.
+
+Por baixo é um cancelamento lógico (`TabItem.cancelledAt`), não um `DELETE` de verdade: a linha precisa
+continuar existindo pra que tanto a baixa original quanto o estorno sigam apontando pra um `tabItemId`
+real na auditoria. Pra quem consome a API não muda nada — o item some da comanda e do `total`.
+
+```json
+// 404 — item não é dessa comanda
+{ "error": "Item não encontrado nesta comanda" }
+
+// 409 — item já removido antes
+{ "error": "Item já foi removido da comanda" }
+
+// 409 — comanda já fechada
+{ "error": "Comanda já está fechada" }
+```
+
+### `POST /tabs/:id/close` `[feito]` — requer `x-operator-pin`
+
+Fecha a comanda: escolhe `paymentMethod`, seta `status: CLOSED` e `closedAt`. Não mexe em estoque.
+
+```json
+// request
+{ "paymentMethod": "CASH" }
+
+// 200
+{
+  "id": "a19dc612-6b24-447e-b969-16f48d6b50b8",
+  "customerName": "João",
+  "status": "CLOSED",
+  "cashRegisterId": "7361c4c8-8cd1-4675-972c-30a8c9fc6c58",
+  "paymentMethod": "CASH",
+  "openedAt": "2026-08-27T05:10:42.939Z",
+  "closedAt": "2026-08-27T05:10:43.677Z",
+  "items": [
+    { "id": "ae275e08-2b20-4ca8-8c83-1ec14ebd39c9", "productId": "a65b8d90-d220-4674-a4d2-d30779c52c88", "quantity": 3, "unitPrice": 500, "createdAt": "2026-08-27T05:10:43.056Z" }
+  ],
+  "total": 1500
+}
+
+// 409 — já fechada
+{ "error": "Comanda já está fechada" }
+
+// 409 — comanda sem nenhum item
+{ "error": "Comanda não possui itens — não é possível fechar" }
+```
+
+`paymentMethod`: `"CASH" | "CARD" | "PIX"`.
 
 ---
 
@@ -322,6 +479,9 @@ Entrada/ajuste manual. Cria `StockMovement` dentro de `prisma.$transaction`.
 Auditoria de `StockMovement`, mais recente primeiro. Filtros opcionais: `productId`, `reason`
 (`SALE`/`CANCELLATION_REVERSAL`/`RESTOCK`/`MANUAL_ADJUSTMENT`), `dateFrom`/`dateTo` (data ISO).
 
+A origem do movimento vem em `saleId` (venda no balcão), `tabItemId` (item de comanda) ou `orderId`
+(delivery, ainda sem rotas) — no máximo um deles é preenchido; ajuste manual vem com os três `null`.
+
 ```json
 // 200
 [
@@ -333,7 +493,19 @@ Auditoria de `StockMovement`, mais recente primeiro. Filtros opcionais: `product
     "quantity": 2,
     "saleId": "8e5a4a9f-700c-4018-b830-f18187248b41",
     "orderId": null,
+    "tabItemId": null,
     "createdAt": "2026-08-24T03:48:10.950Z"
+  },
+  {
+    "id": "1d0a1c33-4f1e-4c60-9a8e-2b7f0d5a91cc",
+    "productId": "a65b8d90-d220-4674-a4d2-d30779c52c88",
+    "type": "INBOUND",
+    "reason": "CANCELLATION_REVERSAL",
+    "quantity": 2,
+    "saleId": null,
+    "orderId": null,
+    "tabItemId": "44dfb1d6-e73b-4ef5-aef6-eaccb2ce7f81",
+    "createdAt": "2026-08-27T05:10:43.402Z"
   }
 ]
 ```
@@ -370,8 +542,12 @@ Schema já modelado (`Order`, `OrderItem`, `Combo`, `ComboGroup`...), sem rotas 
 ## Decisões de escopo (referência)
 
 - PDV: sem login individual do operador no caixa — PIN/senha compartilhada (`Settings.operatorPin`), decisão consciente do cliente
-- PDV: `Sale` não existe sem `CashRegister` OPEN
+- PDV: `Sale` não existe sem `CashRegister` OPEN — `Tab` (comanda) segue a mesma regra
 - PDV: fechamento de caixa não persiste `expectedAmount`/`totalRevenue`/`difference` — sempre recalculado na hora
+- PDV: comanda (`Tab`) é entidade independente, fechar comanda não cria `Sale` — faturamento soma `Sale` + `Tab` fechada
+- PDV: item de comanda baixa estoque na hora do lançamento, não no fechamento — produto já saiu da geladeira
+- PDV: remover item de comanda é cancelamento lógico (`TabItem.cancelledAt`), pra auditoria não perder o `tabItemId`
+- PDV: comanda aberta com itens trava o fechamento do caixa; comanda aberta vazia não (senão travaria o caixa pra sempre)
 - Checkout de delivery sem cadastro/login de cliente — dados avulsos por pedido
 - Pagamento (PDV e delivery): dinheiro, cartão, ou Pix — enum `PaymentMethod`
 - Combo com grupos de escolha (`ComboGroup`), permite repetir produto dentro do grupo

@@ -1,3 +1,28 @@
+export const tabItemSelect = {
+  id: true,
+  productId: true,
+  quantity: true,
+  unitPrice: true,
+  createdAt: true,
+} as const;
+
+// Cancelled items are filtered out everywhere a tab is read: the row only stays
+// in the table to keep the stock audit trail pointing at something.
+export const tabSelect = {
+  id: true,
+  customerName: true,
+  status: true,
+  cashRegisterId: true,
+  paymentMethod: true,
+  openedAt: true,
+  closedAt: true,
+  items: {
+    where: { cancelledAt: null },
+    select: tabItemSelect,
+    orderBy: { createdAt: "asc" },
+  },
+} as const;
+
 export const productSelect = {
   id: true,
   name: true,
