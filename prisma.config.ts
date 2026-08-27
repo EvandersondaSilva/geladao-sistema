@@ -10,5 +10,11 @@ export default defineConfig({
   },
   datasource: {
     url: process.env["DATABASE_URL"],
+    // `prisma dev` serves the app database as `template1`, which Postgres also
+    // uses as the template for every new database — so an auto-created shadow
+    // database comes up as a copy of the app schema and every migration fails to
+    // replay ("type Role already exists"). Point it at the dedicated shadow
+    // server `prisma dev` starts on the next port instead.
+    shadowDatabaseUrl: process.env["SHADOW_DATABASE_URL"],
   },
 });
