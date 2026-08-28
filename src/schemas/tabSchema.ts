@@ -2,7 +2,11 @@ import { z } from "zod";
 
 export const listTabsSchema = z.object({
   query: z.object({
-    status: z.enum(["OPEN", "CLOSED"], { message: "status precisa ser OPEN ou CLOSED" }).optional(),
+    status: z
+      .enum(["OPEN", "CLOSED", "CANCELLED"], {
+        message: "status precisa ser OPEN, CLOSED ou CANCELLED",
+      })
+      .optional(),
   }),
 });
 
@@ -42,6 +46,12 @@ export const removeTabItemSchema = z.object({
   params: z.object({
     id: z.string().min(1, { message: "Id da comanda é obrigatório" }),
     itemId: z.string().min(1, { message: "Id do item é obrigatório" }),
+  }),
+});
+
+export const cancelTabSchema = z.object({
+  params: z.object({
+    id: z.string().min(1, { message: "Id da comanda é obrigatório" }),
   }),
 });
 

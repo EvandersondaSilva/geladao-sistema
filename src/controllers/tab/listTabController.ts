@@ -3,7 +3,7 @@ import { ListTabService } from "../../services/tab/listTabService";
 
 class ListTabController {
   async handle(req: Request, res: Response) {
-    const status = req.query.status as "OPEN" | "CLOSED" | undefined;
+    const status = req.query.status as "OPEN" | "CLOSED" | "CANCELLED" | undefined;
 
     const listTabService = new ListTabService();
 

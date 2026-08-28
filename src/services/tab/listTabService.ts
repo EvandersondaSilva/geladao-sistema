@@ -4,7 +4,7 @@ import { tabSelect } from "../../prisma/selects";
 import { calculateTabTotal } from "./calculateTabTotal";
 
 class ListTabService {
-  async execute(status?: "OPEN" | "CLOSED") {
+  async execute(status?: "OPEN" | "CLOSED" | "CANCELLED") {
     try {
       const tabs = await prismaClient.tab.findMany({
         where: { ...(status && { status }) },

@@ -22,6 +22,10 @@ class AddTabItemService {
           throw new AppError("Comanda não encontrada", 404);
         }
 
+        if (current.status === "CANCELLED") {
+          throw new AppError("Comanda foi cancelada", 409);
+        }
+
         if (current.status !== "OPEN") {
           throw new AppError("Comanda já está fechada", 409);
         }

@@ -1,6 +1,10 @@
 export const tabItemSelect = {
   id: true,
   productId: true,
+  // Joined server-side on purpose: GET /products only returns available items,
+  // so a client-side join would blank out the name of a product deactivated
+  // while the tab is still open — exactly when the operator needs to read it.
+  product: { select: { name: true } },
   quantity: true,
   unitPrice: true,
   createdAt: true,

@@ -33,12 +33,14 @@ import { ListSaleController } from "./controllers/sale/listSaleController";
 import { GetSaleController } from "./controllers/sale/getSaleController";
 import {
   addTabItemSchema,
+  cancelTabSchema,
   closeTabSchema,
   getTabSchema,
   listTabsSchema,
   openTabSchema,
   removeTabItemSchema,
 } from "./schemas/tabSchema";
+import { CancelTabController } from "./controllers/tab/cancelTabController";
 import { OpenTabController } from "./controllers/tab/openTabController";
 import { ListTabController } from "./controllers/tab/listTabController";
 import { GetTabController } from "./controllers/tab/getTabController";
@@ -172,6 +174,15 @@ routes.post(
   checkOperatorPin,
   validateSchema(closeTabSchema),
   new CloseTabController().handle
+);
+
+// discard an empty tab (wrong name, customer left, or every item was removed) —
+// an empty tab can't be closed, so without this it would stay OPEN forever
+routes.post(
+  "/tabs/:id/cancel",
+  checkOperatorPin,
+  validateSchema(cancelTabSchema),
+  new CancelTabController().handle
 );
 
 // stock movement audit trail (filter by productId/reason/date range)

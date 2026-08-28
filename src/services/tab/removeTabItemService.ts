@@ -19,6 +19,10 @@ class RemoveTabItemService {
           throw new AppError("Comanda não encontrada", 404);
         }
 
+        if (tab.status === "CANCELLED") {
+          throw new AppError("Comanda foi cancelada", 409);
+        }
+
         if (tab.status !== "OPEN") {
           throw new AppError("Comanda já está fechada", 409);
         }

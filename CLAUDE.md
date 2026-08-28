@@ -38,7 +38,10 @@ Segue a mesma convenção do projeto irmão `espetinho-delivery` (`sistema-espet
 - `Tab` é entidade independente: fechar comanda **não** cria `Sale`. Toda `Sale` do código nasce junto com a baixa de estoque e o `StockMovement{saleId}` na mesma transação; uma `Sale` vinda de comanda não teria movimento nenhum e criaria dois tipos de `Sale` indistinguíveis na mesma tabela. Custo aceito: relatório de faturamento soma `Sale` + `Tab` fechada
 - `Tab.total` nunca é persistido — sempre recalculado do `TabItem.unitPrice` (snapshot do preço no lançamento), igual `expectedAmount`/`totalRevenue` do caixa
 - Remover item lançado por engano é **cancelamento lógico** (`TabItem.cancelledAt`), nunca `DELETE`: a linha precisa sobreviver pra que a baixa original e o estorno (`INBOUND`/`CANCELLATION_REVERSAL`) continuem apontando pra um `tabItemId` real. Item cancelado é filtrado de toda leitura e do total
-- Não fecha comanda sem nenhum item ativo; não lança item em comanda `CLOSED`
+- Não fecha comanda sem nenhum item ativo; não lança item em comanda `CLOSED`/`CANCELLED`
+- Comanda vazia (nome errado, cliente desistiu, ou todo item foi removido) se descarta com `POST /tabs/:id/cancel` → `TabStatus.CANCELLED`. Sem isso ela ficaria `OPEN` pra sempre: não fecha (não tem item) e não trava o caixa (de propósito). NUNCA fazer isso com `DELETE` — `TabItem` tem `onDelete: Cascade` e `StockMovement.tabItemId` é `SetNull`, então apagar a comanda destruiria o elo de auditoria que o cancelamento lógico de item protege
+- `cancel` NÃO exige caixa `OPEN` (a comanda vazia sobrevive ao caixa dela — exigir travaria justamente o que a rota limpa) e só aceita comanda sem item ativo (cancelar nunca mexe em estoque; item se remove um a um, cada um com seu estorno)
+- `Tab.closedAt` = quando saiu de `OPEN`: pagamento se `CLOSED`, descarte se `CANCELLED`. Somar faturamento filtrando só por `closedAt` conta comanda cancelada — sempre filtrar por `status`
 - Fechamento de caixa: `expectedAmount`/`totalRevenue` somam `Sale` + `Tab` fechada do mesmo caixa. `Tab.total` não é coluna, então não dá pra agregar em SQL — soma em JS a partir dos itens
 - Comanda `OPEN` **com itens** bloqueia o fechamento do caixa (erro lista os nomes). Comanda `OPEN` vazia não bloqueia de propósito — ela também não pode ser fechada, então bloquear por causa dela travaria o caixa pra sempre
 
@@ -69,6 +72,7 @@ Segue a mesma convenção do projeto irmão `espetinho-delivery` (`sistema-espet
 
 ## Common Gotchas
 - CORS: origin deve ser a URL exata do frontend (`http://localhost:3000` em dev) — nunca `*` em produção
-- `prisma generate` precisa rodar de novo após qualquer mudança em `schema.prisma`
+- `prisma generate` precisa rodar de novo após qualquer mudança em `schema.prisma` — `prisma migrate dev` NÃO regenera sozinho de forma confiável (já aconteceu duas vezes: `tsc` acusando `Property 'tab' does not exist on PrismaClient` logo depois de uma migration bem-sucedida)
+- Depois de `prisma generate`, o `npm run dev` que já estava rodando continua servindo o client ANTIGO — sintoma: endpoint novo devolve 500 genérico enquanto um script avulso com o mesmo código funciona. Matar e subir de novo o servidor NÃO resolveu; o que destravou foi salvar qualquer arquivo em `src/` pra forçar o ts-node-dev a recompilar. Se um valor de enum recém-criado der erro só pela API, é isso — não é o banco
 - Baixa de estoque de combo referencia sempre `produtoEscolhidoId` (o que o cliente escolheu), nunca um "produto padrão" do combo — combo não tem produto padrão, só opções
 - `precoUnitario` em `ItemPedido` é snapshot no momento da compra — nunca recalcular puxando preço atual do produto

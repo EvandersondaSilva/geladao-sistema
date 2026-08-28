@@ -31,6 +31,7 @@ enum CashRegisterStatus {
 enum TabStatus {
   OPEN
   CLOSED
+  CANCELLED
 }
 
 enum PaymentMethod {
@@ -202,7 +203,10 @@ model Tab {
 
   items TabItem[]
 
-  openedAt DateTime  @default(now())
+  openedAt DateTime @default(now())
+  // when the tab stopped being OPEN — the moment it was paid for a CLOSED tab,
+  // the moment it was discarded for a CANCELLED one. `status` tells them apart,
+  // so any revenue query must filter on it and not on this column alone.
   closedAt DateTime?
 
   @@map("tabs")

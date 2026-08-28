@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "TabStatus" ADD VALUE 'CANCELLED';

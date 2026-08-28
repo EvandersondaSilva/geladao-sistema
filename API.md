@@ -271,8 +271,9 @@ Abre uma comanda. Exige caixa `OPEN`. Requer `x-operator-pin`.
 
 ### `GET /tabs` `[feito]`
 
-Lista comandas com itens e total, mais recente primeiro. Filtro opcional `?status=OPEN|CLOSED` —
-`?status=OPEN` é a visão "quem está consumindo agora".
+Lista comandas com itens e total, mais recente primeiro. Filtro opcional `?status=OPEN|CLOSED|CANCELLED` —
+`?status=OPEN` é a visão "quem está consumindo agora", e é o que a tela principal do PDV deve usar.
+Sem filtro vem tudo, inclusive comanda cancelada.
 
 ```json
 // 200
@@ -286,12 +287,21 @@ Lista comandas com itens e total, mais recente primeiro. Filtro opcional `?statu
     "openedAt": "2026-08-27T05:10:42.939Z",
     "closedAt": null,
     "items": [
-      { "id": "ae275e08-2b20-4ca8-8c83-1ec14ebd39c9", "productId": "a65b8d90-d220-4674-a4d2-d30779c52c88", "quantity": 3, "unitPrice": 500, "createdAt": "2026-08-27T05:10:43.056Z" }
+      { "id": "ae275e08-2b20-4ca8-8c83-1ec14ebd39c9", "productId": "a65b8d90-d220-4674-a4d2-d30779c52c88", "product": { "name": "Coca-Cola 350ml" }, "quantity": 3, "unitPrice": 500, "createdAt": "2026-08-27T05:10:43.056Z" }
     ],
     "total": 1500
   }
 ]
 ```
+
+O nome do produto vem junto (`product.name`) — o front **não** deve cruzar `productId` com `GET /products`
+pra descobrir isso. Aquela rota só devolve produtos `available: true`, então um produto desativado enquanto a
+comanda ainda está aberta (a cerveja acabou, o admin desmarcou) sumiria do catálogo e o item apareceria sem
+nome bem na hora em que o funcionário precisa ler a comanda pro cliente.
+
+`unitPrice` continua sendo o snapshot do preço no lançamento; `product.name` é o nome **atual** do produto
+(vem por join, não é snapshot). Renomear um produto muda como ele aparece em comandas antigas — aceitável
+aqui, já que o nome é rótulo e o que fecha a conta é o `unitPrice`.
 
 ### `GET /tabs/:id` `[feito]`
 
@@ -354,7 +364,7 @@ Fecha a comanda: escolhe `paymentMethod`, seta `status: CLOSED` e `closedAt`. N�
   "openedAt": "2026-08-27T05:10:42.939Z",
   "closedAt": "2026-08-27T05:10:43.677Z",
   "items": [
-    { "id": "ae275e08-2b20-4ca8-8c83-1ec14ebd39c9", "productId": "a65b8d90-d220-4674-a4d2-d30779c52c88", "quantity": 3, "unitPrice": 500, "createdAt": "2026-08-27T05:10:43.056Z" }
+    { "id": "ae275e08-2b20-4ca8-8c83-1ec14ebd39c9", "productId": "a65b8d90-d220-4674-a4d2-d30779c52c88", "product": { "name": "Coca-Cola 350ml" }, "quantity": 3, "unitPrice": 500, "createdAt": "2026-08-27T05:10:43.056Z" }
   ],
   "total": 1500
 }
@@ -367,6 +377,42 @@ Fecha a comanda: escolhe `paymentMethod`, seta `status: CLOSED` e `closedAt`. N�
 ```
 
 `paymentMethod`: `"CASH" | "CARD" | "PIX"`.
+
+### `POST /tabs/:id/cancel` `[feito]` — requer `x-operator-pin`
+
+Descarta uma comanda vazia — nome digitado errado, cliente que desistiu antes de consumir, ou comanda que
+ficou sem item porque tudo que foi lançado acabou removido. Sem essa rota a comanda ficaria `OPEN` pra
+sempre: comanda sem item não fecha (regra 2) e comanda vazia não trava o caixa (de propósito), então nada
+a tiraria da tela.
+
+Não apaga nada: vira `status: CANCELLED` e sai da lista de abertas, continuando visível em
+`?status=CANCELLED`. Isso é obrigatório e não estético — uma comanda que teve item removido ainda tem o
+`TabItem` cancelado no banco com os movimentos de estoque (a baixa e o estorno) apontando pra ele. Um
+`DELETE` de verdade cascatearia nesse item e zeraria o `tabItemId` dos dois movimentos, destruindo o elo de
+auditoria que o cancelamento lógico de item existe pra proteger.
+
+Duas regras que valem notar:
+
+- **Não exige caixa aberto.** Comanda vazia sobrevive ao caixa em que foi aberta, então exigir caixa `OPEN`
+  deixaria presa pra sempre exatamente a comanda que essa rota existe pra limpar.
+- **Só cancela comanda sem item ativo.** Tendo item, o funcionário remove item por item primeiro — cada
+  remoção gerando seu próprio estorno de estoque. Cancelar nunca mexe em estoque, e assim ninguém anula uma
+  comanda real de 10 bebidas num clique.
+
+```json
+// 200 — mesmo shape de GET /tabs/:id, com status CANCELLED e closedAt preenchido
+
+// 409 — ainda tem item lançado
+{ "error": "Comanda ainda possui itens — remova cada item antes de cancelar" }
+
+// 409 — já cancelada, ou já fechada
+{ "error": "Comanda já foi cancelada" }
+```
+
+Comanda `CANCELLED` não trava o fechamento do caixa e não entra em `totalRevenue`/`expectedAmount`.
+
+> `closedAt` marca quando a comanda deixou de estar `OPEN` — quando foi paga se `CLOSED`, quando foi
+> descartada se `CANCELLED`. Quem for somar faturamento precisa filtrar por `status`, nunca só por `closedAt`.
 
 ---
 
@@ -547,7 +593,8 @@ Schema já modelado (`Order`, `OrderItem`, `Combo`, `ComboGroup`...), sem rotas 
 - PDV: comanda (`Tab`) é entidade independente, fechar comanda não cria `Sale` — faturamento soma `Sale` + `Tab` fechada
 - PDV: item de comanda baixa estoque na hora do lançamento, não no fechamento — produto já saiu da geladeira
 - PDV: remover item de comanda é cancelamento lógico (`TabItem.cancelledAt`), pra auditoria não perder o `tabItemId`
-- PDV: comanda aberta com itens trava o fechamento do caixa; comanda aberta vazia não (senão travaria o caixa pra sempre)
+- PDV: comanda aberta com itens trava o fechamento do caixa; comanda aberta vazia não (senão travaria o caixa pra sempre) — e comanda vazia se descarta com `POST /tabs/:id/cancel`, nunca com `DELETE`
+- PDV: item de comanda devolve `product.name` por join no servidor — o front não deve cruzar com `GET /products`, que esconde produto desativado
 - Checkout de delivery sem cadastro/login de cliente — dados avulsos por pedido
 - Pagamento (PDV e delivery): dinheiro, cartão, ou Pix — enum `PaymentMethod`
 - Combo com grupos de escolha (`ComboGroup`), permite repetir produto dentro do grupo
