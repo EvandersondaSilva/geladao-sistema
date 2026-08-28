@@ -6,6 +6,12 @@ export const listCashRegistersSchema = z.object({
   }),
 });
 
+export const getCashRegisterSchema = z.object({
+  params: z.object({
+    id: z.string().min(1, { message: "Id do caixa é obrigatório" }),
+  }),
+});
+
 export const openCashRegisterSchema = z.object({
   body: z.object({
     openingAmount: z

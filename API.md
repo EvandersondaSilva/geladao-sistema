@@ -114,6 +114,52 @@ Lista caixas, mais recente primeiro. Filtro opcional `?status=OPEN|CLOSED`.
 ]
 ```
 
+### `GET /cash-registers/:id` `[feito]`
+
+Resumo do turno numa chamada só: o caixa, suas vendas, suas comandas, e o dinheiro **já somado**. Existe
+pra tela de resumo não ter que juntar `/cash-registers`, `/sales` e `/tabs` no cliente e refazer a conta —
+principalmente o total das comandas, que não é coluna no banco e é regra de negócio.
+
+Funciona com o caixa aberto ou fechado. Com o caixa `OPEN`, `expectedAmount` já diz quanto deveria ter na
+gaveta agora; `difference` vem `null`, porque só existe depois que alguém contou e informou o fechamento.
+
+```json
+// 200
+{
+  "id": "ef6409db-d498-4d8f-9386-168edd81059d",
+  "status": "OPEN",
+  "openingAmount": 10000,
+  "reportedClosingAmount": null,
+  "openedAt": "2026-08-28T04:50:11.402Z",
+  "closedAt": null,
+  "expectedAmount": 11000,
+  "totalRevenue": 3000,
+  "byPaymentMethod": { "CASH": 1000, "CARD": 1500, "PIX": 500 },
+  "difference": null,
+  "sales": [
+    {
+      "id": "239b4a5e-ab4d-472c-8552-7cba709cdb1b",
+      "total": 500,
+      "paymentMethod": "PIX",
+      "createdAt": "2026-08-28T04:50:11.680Z",
+      "items": [ { "id": "…", "productId": "…", "product": { "name": "Coca-Cola 350ml" }, "quantity": 1, "unitPrice": 500 } ]
+    }
+  ],
+  "tabs": [
+    { "id": "…", "customerName": "Bia", "status": "OPEN", "total": 1000, "items": [ … ] },
+    { "id": "…", "customerName": "Carlos", "status": "CLOSED", "paymentMethod": "CARD", "total": 1500, "items": [ … ] }
+  ]
+}
+
+// 404
+{ "error": "Caixa não encontrado" }
+```
+
+`byPaymentMethod` soma `Sale` + comanda fechada, por forma de pagamento. `expectedAmount` é
+`openingAmount + byPaymentMethod.CASH` — só dinheiro fica na gaveta. `tabs` traz todas as comandas do
+caixa, incluindo `CANCELLED` (o `status` de cada uma diz qual é qual); comanda cancelada não entra em
+nenhum total.
+
 ### `POST /cash-registers/:id/close` `[feito]`
 
 Fecha o caixa. Calcula na hora (não persiste) `expectedAmount` (abertura + recebido em `CASH`),
@@ -141,6 +187,7 @@ fecha), então bloquear por causa dela travaria o caixa pra sempre.
   "closedAt": "2026-08-24T03:48:49.190Z",
   "expectedAmount": 11500,
   "totalRevenue": 2500,
+  "byPaymentMethod": { "CASH": 1500, "CARD": 1000, "PIX": 0 },
   "difference": 0
 }
 

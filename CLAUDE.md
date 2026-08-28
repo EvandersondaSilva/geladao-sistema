@@ -43,6 +43,7 @@ Segue a mesma convenção do projeto irmão `espetinho-delivery` (`sistema-espet
 - `cancel` NÃO exige caixa `OPEN` (a comanda vazia sobrevive ao caixa dela — exigir travaria justamente o que a rota limpa) e só aceita comanda sem item ativo (cancelar nunca mexe em estoque; item se remove um a um, cada um com seu estorno)
 - `Tab.closedAt` = quando saiu de `OPEN`: pagamento se `CLOSED`, descarte se `CANCELLED`. Somar faturamento filtrando só por `closedAt` conta comanda cancelada — sempre filtrar por `status`
 - Fechamento de caixa: `expectedAmount`/`totalRevenue` somam `Sale` + `Tab` fechada do mesmo caixa. `Tab.total` não é coluna, então não dá pra agregar em SQL — soma em JS a partir dos itens
+- Essa conta mora em `calculateCashRegisterTotals` (recebe `tx` ou o client) e é usada tanto pelo fechamento quanto pelo `GET /cash-registers/:id` — nunca duplicar, senão as duas telas divergem sobre o mesmo turno. `expectedAmount` = abertura + só o que entrou em `CASH`
 - Comanda `OPEN` **com itens** bloqueia o fechamento do caixa (erro lista os nomes). Comanda `OPEN` vazia não bloqueia de propósito — ela também não pode ser fechada, então bloquear por causa dela travaria o caixa pra sempre
 
 ### Combo (delivery — pausado)

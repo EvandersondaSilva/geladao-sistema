@@ -1,6 +1,6 @@
 import prismaClient from "../../prisma";
 import { AppError } from "../../errors/AppError";
-import { calculateTabTotal } from "../tab/calculateTabTotal";
+import { calculateCashRegisterTotals } from "./calculateCashRegisterTotals";
 
 interface CloseCashRegisterRequest {
   id: string;
@@ -43,40 +43,11 @@ class CloseCashRegisterService {
           );
         }
 
-        const [cashSales, allSales, closedTabs] = await Promise.all([
-          tx.sale.aggregate({
-            where: { cashRegisterId: id, paymentMethod: "CASH" },
-            _sum: { total: true },
-          }),
-          tx.sale.aggregate({
-            where: { cashRegisterId: id },
-            _sum: { total: true },
-          }),
-          // Tab.total is not persisted, so it can't be aggregated in SQL — the
-          // closed tabs of a single register are few enough to sum from their
-          // item price snapshots here.
-          tx.tab.findMany({
-            where: { cashRegisterId: id, status: "CLOSED" },
-            select: {
-              paymentMethod: true,
-              items: { where: { cancelledAt: null }, select: { quantity: true, unitPrice: true } },
-            },
-          }),
-        ]);
-
-        const closedTabsTotal = closedTabs.reduce(
-          (acc, tab) => acc + calculateTabTotal(tab.items),
-          0
-        );
-
-        const closedTabsCashTotal = closedTabs.reduce(
-          (acc, tab) => (tab.paymentMethod === "CASH" ? acc + calculateTabTotal(tab.items) : acc),
-          0
-        );
-
-        const expectedAmount =
-          current.openingAmount + (cashSales._sum.total ?? 0) + closedTabsCashTotal;
-        const totalRevenue = (allSales._sum.total ?? 0) + closedTabsTotal;
+        const { expectedAmount, totalRevenue, byPaymentMethod } =
+          await calculateCashRegisterTotals(tx, {
+            cashRegisterId: id,
+            openingAmount: current.openingAmount,
+          });
 
         const updated = await tx.cashRegister.update({
           where: { id },
@@ -99,6 +70,7 @@ class CloseCashRegisterService {
           ...updated,
           expectedAmount,
           totalRevenue,
+          byPaymentMethod,
           difference: reportedClosingAmount - expectedAmount,
         };
       });

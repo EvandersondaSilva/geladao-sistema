@@ -20,9 +20,11 @@ import { AdjustProductStockController } from "./controllers/product/adjustProduc
 import { ListLowStockProductController } from "./controllers/product/listLowStockProductController";
 import {
   closeCashRegisterSchema,
+  getCashRegisterSchema,
   listCashRegistersSchema,
   openCashRegisterSchema,
 } from "./schemas/cashRegisterSchema";
+import { GetCashRegisterController } from "./controllers/cashRegister/getCashRegisterController";
 import { OpenCashRegisterController } from "./controllers/cashRegister/openCashRegisterController";
 import { CloseCashRegisterController } from "./controllers/cashRegister/closeCashRegisterController";
 import { ListCashRegisterController } from "./controllers/cashRegister/listCashRegisterController";
@@ -117,6 +119,14 @@ routes.get("/cash-registers/current", new GetCurrentCashRegisterController().han
 
 // list cash registers (PDV history), optional status filter
 routes.get("/cash-registers", validateSchema(listCashRegistersSchema), new ListCashRegisterController().handle);
+
+// shift summary — the register plus its sales and tabs, with the money already
+// added up. MUST stay after /cash-registers/current, or ":id" would swallow it
+routes.get(
+  "/cash-registers/:id",
+  validateSchema(getCashRegisterSchema),
+  new GetCashRegisterController().handle
+);
 
 // open cash register (PDV)
 routes.post(
