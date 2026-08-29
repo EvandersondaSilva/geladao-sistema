@@ -13,7 +13,18 @@
 - `npx prisma studio` — interface visual do banco
 
 ## Architecture
-Segue a mesma convenção do projeto irmão `espetinho-delivery` (`sistema-espeto/espetinho-delivery`) — mantenha as duas APIs consistentes.
+**Arquitetura em camadas (layered) com um caso de uso por classe.** O fluxo é sempre
+`rota → middleware → controller → service → Prisma`, cada camada só conversa com a seguinte.
+
+O nome técnico honesto é esse: *layered architecture* + *service layer*, com uma classe por ação
+(cada service é um caso de uso isolado com um único método `execute`). **Não** é Clean Architecture nem
+Hexagonal — não existe camada de domínio, nem repository, nem inversão de dependência: os services falam
+com o Prisma diretamente e de propósito. Se alguém pedir "Clean Architecture", isso aqui **não** é, e
+transformar nisso exigiria entidades de domínio + interfaces de repositório, o que não é o objetivo do
+projeto.
+
+A convenção de pastas veio do projeto `espetinho-delivery`, mas só a **estrutura** — as duas APIs são
+independentes e NÃO precisam ser mantidas em sincronia. Decisão de domínio aqui não precisa valer lá.
 
 - `src/routes.ts` — arquivo ÚNICO com todas as rotas (sem pasta `routes/`), monta `validateSchema(schema)` + `new XController().handle` inline
 - `src/controllers/<entidade>/` — uma classe por ação (`createCategoryController.ts`, `listCategoryController.ts`...), sempre `class XController { async handle(req, res) {...} }`
@@ -21,9 +32,12 @@ Segue a mesma convenção do projeto irmão `espetinho-delivery` (`sistema-espet
 - `src/schemas/<entidade>Schema.ts` — UM arquivo por entidade com todos os schemas Zod dela, sempre no formato `z.object({ body, params, query })`
 - `src/middlewares/validateSchema.ts` — middleware genérico que roda o schema Zod e devolve 400 com `details` em caso de erro
 - `src/errors/AppError.ts` — erro de negócio com `statusCode`, lançado dentro dos services, capturado pelo error handler global em `server.ts`
-- `src/prisma/index.ts` — client Prisma singleton, `export default`. Como o projeto está no Prisma 7, exige `PrismaPg` (driver adapter) no construtor — diferente do Espetinho (Prisma 5, sem adapter)
+- `src/prisma/index.ts` — client Prisma singleton, `export default`. Como o projeto está no Prisma 7, exige `PrismaPg` (driver adapter) no construtor
+- `src/prisma/selects.ts` — objetos `select` reaproveitados entre services (`productSelect`, `tabSelect`...), pra duas rotas não devolverem shapes diferentes da mesma entidade
 - `src/server.ts` — cria o app Express, aplica CORS/JSON, monta `routes`, registra o error handler (`AppError`) e faz `listen`. NÃO existe `app.ts` separado
 - Controllers NUNCA acessam Prisma direto — sempre passam por service
+- Controller é fino de propósito: lê `req`, chama o service, devolve status + JSON. Zero regra de negócio, zero `if` de domínio
+- Conta que mais de um service precisa vira função compartilhada, não código copiado (`calculateTabTotal`, `calculateCashRegisterTotals`) — senão duas telas divergem sobre o mesmo número
 
 ## Domain Rules (crítico)
 
