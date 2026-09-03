@@ -34,6 +34,11 @@ enum TabStatus {
   CANCELLED
 }
 
+enum DebtStatus {
+  OPEN
+  PAID
+}
+
 enum PaymentMethod {
   CASH
   CARD
@@ -143,6 +148,10 @@ model CashRegister {
   sales Sale[]
   tabs  Tab[]
 
+  // credit given out in this shift, and credit from any shift received in it
+  debts        Debt[]
+  debtPayments DebtPayment[]
+
   openedAt DateTime  @default(now())
   closedAt DateTime?
 
@@ -198,10 +207,14 @@ model Tab {
   cashRegisterId String
   cashRegister   CashRegister @relation(fields: [cashRegisterId], references: [id])
 
-  // only filled in on close — an open tab has not chosen how it will pay yet
+  // Only filled in on close — an OPEN tab has not chosen how it will pay yet,
+  // and a tab closed on credit never will: it has a `debt` instead. So a CLOSED
+  // tab with a null paymentMethod is a fiado tab, not a bug.
   paymentMethod PaymentMethod?
 
   items TabItem[]
+
+  debt Debt?
 
   openedAt DateTime @default(now())
   // when the tab stopped being OPEN — the moment it was paid for a CLOSED tab,
@@ -261,6 +274,78 @@ model StockMovement {
   createdAt DateTime @default(now())
 
   @@map("stock_movements")
+}
+
+// ==========================================
+// Fiado — customers who take goods now and pay later
+// ==========================================
+
+// A real customer record, unlike the free text in Tab.customerName. Credit needs
+// one: to know that the "João" who owes 340 is the same João who came back today.
+model Customer {
+  id String @id @default(uuid())
+
+  name  String
+  phone String?
+  notes String?
+
+  debts Debt[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("customers")
+}
+
+model Debt {
+  id String @id @default(uuid())
+
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  // Persisted on purpose, unlike Tab.total: this is not a derived total but the
+  // amount that was agreed when the goods went out on credit. It must not move
+  // afterwards, whatever happens to the tab it came from.
+  amount Int // cents
+
+  // OPEN/PAID is a state transition, so it is stored (like Tab.status). The
+  // outstanding balance is NOT — it is always amount minus the payments.
+  status DebtStatus @default(OPEN)
+
+  // where it came from — nullable so a debt can later originate somewhere other
+  // than a tab (a counter sale, an adjustment) without a migration
+  tabId String? @unique
+  tab   Tab?    @relation(fields: [tabId], references: [id])
+
+  // the shift that gave the credit out, so its summary can report it
+  cashRegisterId String
+  cashRegister   CashRegister @relation(fields: [cashRegisterId], references: [id])
+
+  payments DebtPayment[]
+
+  createdAt DateTime  @default(now())
+  paidAt    DateTime?
+
+  @@map("debts")
+}
+
+model DebtPayment {
+  id String @id @default(uuid())
+
+  debtId String
+  debt   Debt   @relation(fields: [debtId], references: [id], onDelete: Cascade)
+
+  amount        Int // cents — partial payments are allowed, so this is not the debt total
+  paymentMethod PaymentMethod
+
+  // The shift that physically received the money, which is NOT the shift that
+  // gave the credit: a debt from last week paid today belongs in today's drawer.
+  cashRegisterId String
+  cashRegister   CashRegister @relation(fields: [cashRegisterId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@map("debt_payments")
 }
 
 // ==========================================

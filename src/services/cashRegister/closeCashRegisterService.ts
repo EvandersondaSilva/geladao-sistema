@@ -43,11 +43,10 @@ class CloseCashRegisterService {
           );
         }
 
-        const { expectedAmount, totalRevenue, byPaymentMethod } =
-          await calculateCashRegisterTotals(tx, {
-            cashRegisterId: id,
-            openingAmount: current.openingAmount,
-          });
+        const totals = await calculateCashRegisterTotals(tx, {
+          cashRegisterId: id,
+          openingAmount: current.openingAmount,
+        });
 
         const updated = await tx.cashRegister.update({
           where: { id },
@@ -68,10 +67,8 @@ class CloseCashRegisterService {
 
         return {
           ...updated,
-          expectedAmount,
-          totalRevenue,
-          byPaymentMethod,
-          difference: reportedClosingAmount - expectedAmount,
+          ...totals,
+          difference: reportedClosingAmount - totals.expectedAmount,
         };
       });
 

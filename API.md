@@ -133,7 +133,10 @@ gaveta agora; `difference` vem `null`, porque só existe depois que alguém cont
   "openedAt": "2026-08-28T04:50:11.402Z",
   "closedAt": null,
   "expectedAmount": 11000,
-  "totalRevenue": 3000,
+  "soldTotal": 3000,
+  "fiadoTotal": 0,
+  "debtPaymentsTotal": 0,
+  "receivedTotal": 3000,
   "byPaymentMethod": { "CASH": 1000, "CARD": 1500, "PIX": 500 },
   "difference": null,
   "sales": [
@@ -186,7 +189,10 @@ fecha), então bloquear por causa dela travaria o caixa pra sempre.
   "openedAt": "2026-08-24T03:47:54.685Z",
   "closedAt": "2026-08-24T03:48:49.190Z",
   "expectedAmount": 11500,
-  "totalRevenue": 2500,
+  "soldTotal": 2500,
+  "fiadoTotal": 0,
+  "debtPaymentsTotal": 0,
+  "receivedTotal": 2500,
   "byPaymentMethod": { "CASH": 1500, "CARD": 1000, "PIX": 0 },
   "difference": 0
 }
@@ -289,7 +295,7 @@ indistinguíveis na mesma tabela. Em troca, relatórios de faturamento precisam 
 fechada (o fechamento de caixa já faz isso).
 
 `total` nunca é persistido — é sempre recalculado a partir do `unitPrice` (snapshot de quando o item foi
-lançado), mesma decisão de `expectedAmount`/`totalRevenue` no caixa.
+lançado), mesma decisão de `expectedAmount`/`soldTotal` no caixa.
 
 ### `POST /tabs` `[feito]`
 
@@ -456,10 +462,151 @@ Duas regras que valem notar:
 { "error": "Comanda já foi cancelada" }
 ```
 
-Comanda `CANCELLED` não trava o fechamento do caixa e não entra em `totalRevenue`/`expectedAmount`.
+Comanda `CANCELLED` não trava o fechamento do caixa e não entra em nenhum total.
 
 > `closedAt` marca quando a comanda deixou de estar `OPEN` — quando foi paga se `CLOSED`, quando foi
 > descartada se `CANCELLED`. Quem for somar faturamento precisa filtrar por `status`, nunca só por `closedAt`.
+
+---
+
+## Fiado — Clientes e Contas a Receber
+
+Cliente leva agora e paga depois. **Fiado NÃO é forma de pagamento** — `PaymentMethod` continua só com
+dinheiro de verdade (`CASH`/`CARD`/`PIX`), e é isso que garante que qualquer soma sobre esse enum seja
+dinheiro que entrou. Marcar fiado é ação própria (`POST /tabs/:id/fiado`).
+
+**Fiado exige `Customer` cadastrado.** `Tab.customerName` é texto livre e texto livre não serve pra dívida —
+você precisa saber que o "João" que deve R$20 é o mesmo João que voltou hoje.
+
+### Os números do turno, e por que são vários
+
+Uma venda no fiado foi **vendida** mas não **recebida**; um fiado antigo pago hoje foi **recebido** mas não
+vendido hoje. Juntar isso num número só ou infla o faturamento (os mesmos R$20 contados no dia da venda e
+de novo no dia do pagamento) ou deixa a gaveta furada. Por isso:
+
+| Campo | O que é |
+|---|---|
+| `soldTotal` | o que foi **vendido** no turno, incluindo fiado |
+| `fiadoTotal` | quanto do vendido saiu no fiado (não entrou dinheiro) |
+| `debtPaymentsTotal` | fiado de **outro** turno recebido neste (não é venda de hoje) |
+| `receivedTotal` | dinheiro que efetivamente entrou |
+| `byPaymentMethod` | o recebido, por forma de pagamento (inclui recebimento de fiado) |
+| `expectedAmount` | abertura + `byPaymentMethod.CASH` — o que tem que estar na gaveta |
+
+Vale a identidade `soldTotal = receivedTotal - debtPaymentsTotal + fiadoTotal`. Se um relatório futuro não
+fechar por essa conta, o erro está no relatório.
+
+Exemplo real (testado): comanda de R$20 no fiado na segunda, cliente paga na terça.
+
+```
+segunda: soldTotal=2000  fiadoTotal=2000  receivedTotal=0     expectedAmount=10000 (só a abertura)
+terça:   soldTotal=0     fiadoTotal=0     receivedTotal=2000  expectedAmount=7000  (5000 + 2000)
+                                          debtPaymentsTotal=2000
+```
+
+### `POST /tabs/:id/fiado` `[feito]` — requer `x-operator-pin`
+
+Fecha a comanda no fiado em vez de receber. A comanda vira `CLOSED` com `paymentMethod: null` (não foi paga)
+e nasce a dívida. Não mexe em estoque — a baixa já ocorreu item a item, igual no fechamento normal.
+
+```json
+// request
+{ "customerId": "35b19d1f-7ff0-4893-8dcd-d7732d8d1bb6" }
+
+// 200 — a comanda fechada, com a dívida criada junto
+{
+  "id": "…", "customerName": "Joao", "status": "CLOSED", "paymentMethod": null, "total": 2000,
+  "items": [ … ],
+  "debt": { "id": "…", "customerId": "35b19d1f…", "amount": 2000, "balance": 2000, "status": "OPEN" }
+}
+
+// 409 — comanda vazia, já fechada ou cancelada · 404 — cliente não cadastrado
+{ "error": "Comanda não possui itens — não é possível marcar como fiado" }
+```
+
+> Uma comanda `CLOSED` com `paymentMethod: null` é uma comanda no fiado, não um bug. Ela tem `debt`.
+
+### `GET /customers` `[feito]`
+
+Lista clientes em ordem alfabética, **cada um com o saldo devedor** — é a tela de "quem tá devendo".
+Filtro opcional `?search=` (busca por nome, ignora maiúscula/minúscula).
+
+```json
+// 200
+[ { "id": "35b19d1f…", "name": "Joao Silva", "phone": "88999998888", "notes": null, "totalOwed": 2000, "createdAt": "…" } ]
+```
+
+### `GET /customers/:id` `[feito]`
+
+Extrato do cliente: todas as dívidas, cada uma com seus pagamentos e saldo, mais o `totalOwed`.
+
+```json
+// 200
+{
+  "id": "35b19d1f…", "name": "Joao Silva", "totalOwed": 0,
+  "debts": [
+    {
+      "id": "…", "amount": 2000, "balance": 0, "status": "PAID", "tabId": "…", "paidAt": "…",
+      "payments": [
+        { "id": "…", "amount": 500, "paymentMethod": "CASH", "cashRegisterId": "…", "createdAt": "…" },
+        { "id": "…", "amount": 1500, "paymentMethod": "CASH", "cashRegisterId": "…", "createdAt": "…" }
+      ]
+    }
+  ]
+}
+```
+
+### `POST /customers` · `PATCH /customers/:id` `[feito]` — requerem `x-operator-pin`
+
+```json
+// request — só name é obrigatório
+{ "name": "Joao Silva", "phone": "88999998888", "notes": "vizinho, paga toda sexta" }
+```
+
+### `GET /debts` `[feito]`
+
+Lista de fiados, **mais antigo primeiro** (numa lista de devedores, o que está pendurado há mais tempo é o
+que interessa). Filtros opcionais `?status=OPEN|PAID` e `?customerId=`. Traz o nome do cliente junto.
+
+```json
+// 200
+[
+  {
+    "id": "…", "customerId": "35b19d1f…",
+    "customer": { "id": "35b19d1f…", "name": "Joao Silva", "phone": "88999998888" },
+    "amount": 2000, "balance": 2000, "status": "OPEN",
+    "tabId": "…", "cashRegisterId": "…", "createdAt": "…", "paidAt": null,
+    "payments": []
+  }
+]
+```
+
+`amount` é o valor combinado quando a mercadoria saiu — congelado, não muda mais. `balance` é
+`amount - soma dos pagamentos`, calculado na hora (nunca persistido).
+
+### `GET /debts/:id` `[feito]`
+
+Uma dívida com seus pagamentos e saldo. `404` se não existir.
+
+### `POST /debts/:id/payments` `[feito]` — requer `x-operator-pin`
+
+Recebe (total ou **parcial**) contra uma dívida. **Exige caixa `OPEN`** — diferente de dar fiado, aqui
+entra dinheiro de verdade, e é isso que faz a gaveta bater no fechamento. O dinheiro entra no caixa do dia
+do **pagamento**, não no caixa que deu o fiado.
+
+```json
+// request
+{ "amount": 500, "paymentMethod": "CASH", "cashRegisterId": "…" }
+
+// 201 — a dívida atualizada; quita sozinha quando o saldo zera
+{ "id": "…", "amount": 2000, "balance": 1500, "status": "OPEN", "payments": [ { "amount": 500, … } ] }
+
+// 409 — valor maior que o saldo
+{ "error": "Valor maior que o saldo devedor: saldo 500, informado 999999" }
+
+// 409 — dívida já quitada, ou caixa não está aberto
+{ "error": "Fiado já está quitado" }
+```
 
 ---
 
@@ -636,7 +783,9 @@ Schema já modelado (`Order`, `OrderItem`, `Combo`, `ComboGroup`...), sem rotas 
 
 - PDV: sem login individual do operador no caixa — PIN/senha compartilhada (`Settings.operatorPin`), decisão consciente do cliente
 - PDV: `Sale` não existe sem `CashRegister` OPEN — `Tab` (comanda) segue a mesma regra
-- PDV: fechamento de caixa não persiste `expectedAmount`/`totalRevenue`/`difference` — sempre recalculado na hora
+- PDV: fechamento de caixa não persiste nenhum total (`expectedAmount`, `soldTotal`, `difference`...) — sempre recalculado na hora
+- PDV: fiado é ação separada, NÃO é `PaymentMethod` — assim toda soma sobre `PaymentMethod` é dinheiro que entrou de verdade
+- PDV: fiado exige `Customer` cadastrado (texto livre não serve pra dívida) e aceita pagamento parcial
 - PDV: comanda (`Tab`) é entidade independente, fechar comanda não cria `Sale` — faturamento soma `Sale` + `Tab` fechada
 - PDV: item de comanda baixa estoque na hora do lançamento, não no fechamento — produto já saiu da geladeira
 - PDV: remover item de comanda é cancelamento lógico (`TabItem.cancelledAt`), pra auditoria não perder o `tabItemId`

@@ -49,6 +49,17 @@ export const removeTabItemSchema = z.object({
   }),
 });
 
+export const markTabAsFiadoSchema = z.object({
+  params: z.object({
+    id: z.string().min(1, { message: "Id da comanda é obrigatório" }),
+  }),
+  body: z.object({
+    customerId: z
+      .string({ message: "customerId precisa ser um texto" })
+      .min(1, { message: "customerId é obrigatório — fiado exige cliente cadastrado" }),
+  }),
+});
+
 export const cancelTabSchema = z.object({
   params: z.object({
     id: z.string().min(1, { message: "Id da comanda é obrigatório" }),

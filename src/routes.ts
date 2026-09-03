@@ -39,9 +39,25 @@ import {
   closeTabSchema,
   getTabSchema,
   listTabsSchema,
+  markTabAsFiadoSchema,
   openTabSchema,
   removeTabItemSchema,
 } from "./schemas/tabSchema";
+import { MarkTabAsFiadoController } from "./controllers/tab/markTabAsFiadoController";
+import {
+  createCustomerSchema,
+  getCustomerSchema,
+  listCustomersSchema,
+  updateCustomerSchema,
+} from "./schemas/customerSchema";
+import { CreateCustomerController } from "./controllers/customer/createCustomerController";
+import { ListCustomerController } from "./controllers/customer/listCustomerController";
+import { GetCustomerController } from "./controllers/customer/getCustomerController";
+import { UpdateCustomerController } from "./controllers/customer/updateCustomerController";
+import { getDebtSchema, listDebtsSchema, payDebtSchema } from "./schemas/debtSchema";
+import { ListDebtController } from "./controllers/debt/listDebtController";
+import { GetDebtController } from "./controllers/debt/getDebtController";
+import { PayDebtController } from "./controllers/debt/payDebtController";
 import { CancelTabController } from "./controllers/tab/cancelTabController";
 import { OpenTabController } from "./controllers/tab/openTabController";
 import { ListTabController } from "./controllers/tab/listTabController";
@@ -136,7 +152,7 @@ routes.post(
   new OpenCashRegisterController().handle
 );
 
-// close cash register — computes expectedAmount/totalRevenue/difference on the fly, does not persist them
+// close cash register — computes every total on the fly, does not persist them
 routes.post(
   "/cash-registers/:id/close",
   checkOperatorPin,
@@ -186,6 +202,16 @@ routes.post(
   new CloseTabController().handle
 );
 
+// close the tab on credit instead of taking payment — creates the customer's debt.
+// Kept separate from /close on purpose: PaymentMethod stays "real money only", so
+// every sum over it is money that actually came in
+routes.post(
+  "/tabs/:id/fiado",
+  checkOperatorPin,
+  validateSchema(markTabAsFiadoSchema),
+  new MarkTabAsFiadoController().handle
+);
+
 // discard an empty tab (wrong name, customer left, or every item was removed) —
 // an empty tab can't be closed, so without this it would stay OPEN forever
 routes.post(
@@ -193,6 +219,41 @@ routes.post(
   checkOperatorPin,
   validateSchema(cancelTabSchema),
   new CancelTabController().handle
+);
+
+// customers — a real record, unlike the free text in Tab.customerName. Listing
+// carries each one's outstanding balance, since "who owes me" is the point
+routes.get("/customers", validateSchema(listCustomersSchema), new ListCustomerController().handle);
+
+// customer detail with the full statement: every debt, its payments and balance
+routes.get("/customers/:id", validateSchema(getCustomerSchema), new GetCustomerController().handle);
+
+routes.post(
+  "/customers",
+  checkOperatorPin,
+  validateSchema(createCustomerSchema),
+  new CreateCustomerController().handle
+);
+
+routes.patch(
+  "/customers/:id",
+  checkOperatorPin,
+  validateSchema(updateCustomerSchema),
+  new UpdateCustomerController().handle
+);
+
+// fiado — ?status=OPEN is the debtor list, oldest first
+routes.get("/debts", validateSchema(listDebtsSchema), new ListDebtController().handle);
+
+routes.get("/debts/:id", validateSchema(getDebtSchema), new GetDebtController().handle);
+
+// receive against a debt (partial allowed) — needs an OPEN register, since this
+// is money physically entering the drawer
+routes.post(
+  "/debts/:id/payments",
+  checkOperatorPin,
+  validateSchema(payDebtSchema),
+  new PayDebtController().handle
 );
 
 // stock movement audit trail (filter by productId/reason/date range)

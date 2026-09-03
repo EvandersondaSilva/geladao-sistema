@@ -1,3 +1,35 @@
+export const customerSelect = {
+  id: true,
+  name: true,
+  phone: true,
+  notes: true,
+  createdAt: true,
+} as const;
+
+export const debtPaymentSelect = {
+  id: true,
+  amount: true,
+  paymentMethod: true,
+  cashRegisterId: true,
+  createdAt: true,
+} as const;
+
+// The customer's name rides along for the same reason product names do on tab
+// items: the debtor list is unreadable as a column of uuids, and resolving them
+// client-side is one more thing to get wrong.
+export const debtSelect = {
+  id: true,
+  customerId: true,
+  customer: { select: { id: true, name: true, phone: true } },
+  amount: true,
+  status: true,
+  tabId: true,
+  cashRegisterId: true,
+  createdAt: true,
+  paidAt: true,
+  payments: { select: debtPaymentSelect, orderBy: { createdAt: "asc" } },
+} as const;
+
 export const tabItemSelect = {
   id: true,
   productId: true,

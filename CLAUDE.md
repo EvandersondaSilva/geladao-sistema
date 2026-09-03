@@ -50,7 +50,7 @@ independentes e NÃO precisam ser mantidas em sincronia. Decisão de domínio aq
 - **Baixa de estoque é no lançamento do item, não no fechamento** — o produto já saiu da geladeira quando o cliente bebe, mesmo sem ter pago. Cada `TabItem` gera `StockMovement` (`OUTBOUND`/`SALE`, com `tabItemId`) dentro de `prisma.$transaction`
 - Por consequência, fechar comanda NÃO gera `StockMovement` — seria contar em dobro
 - `Tab` é entidade independente: fechar comanda **não** cria `Sale`. Toda `Sale` do código nasce junto com a baixa de estoque e o `StockMovement{saleId}` na mesma transação; uma `Sale` vinda de comanda não teria movimento nenhum e criaria dois tipos de `Sale` indistinguíveis na mesma tabela. Custo aceito: relatório de faturamento soma `Sale` + `Tab` fechada
-- `Tab.total` nunca é persistido — sempre recalculado do `TabItem.unitPrice` (snapshot do preço no lançamento), igual `expectedAmount`/`totalRevenue` do caixa
+- `Tab.total` nunca é persistido — sempre recalculado do `TabItem.unitPrice` (snapshot do preço no lançamento), igual `expectedAmount`/`soldTotal` do caixa
 - Remover item lançado por engano é **cancelamento lógico** (`TabItem.cancelledAt`), nunca `DELETE`: a linha precisa sobreviver pra que a baixa original e o estorno (`INBOUND`/`CANCELLATION_REVERSAL`) continuem apontando pra um `tabItemId` real. Item cancelado é filtrado de toda leitura e do total
 - Não fecha comanda sem nenhum item ativo; não lança item em comanda `CLOSED`/`CANCELLED`
 - Comanda vazia (nome errado, cliente desistiu, ou todo item foi removido) se descarta com `POST /tabs/:id/cancel` → `TabStatus.CANCELLED`. Sem isso ela ficaria `OPEN` pra sempre: não fecha (não tem item) e não trava o caixa (de propósito). NUNCA fazer isso com `DELETE` — `TabItem` tem `onDelete: Cascade` e `StockMovement.tabItemId` é `SetNull`, então apagar a comanda destruiria o elo de auditoria que o cancelamento lógico de item protege
@@ -59,6 +59,16 @@ independentes e NÃO precisam ser mantidas em sincronia. Decisão de domínio aq
 - Fechamento de caixa: `expectedAmount`/`totalRevenue` somam `Sale` + `Tab` fechada do mesmo caixa. `Tab.total` não é coluna, então não dá pra agregar em SQL — soma em JS a partir dos itens
 - Essa conta mora em `calculateCashRegisterTotals` (recebe `tx` ou o client) e é usada tanto pelo fechamento quanto pelo `GET /cash-registers/:id` — nunca duplicar, senão as duas telas divergem sobre o mesmo turno. `expectedAmount` = abertura + só o que entrou em `CASH`
 - Comanda `OPEN` **com itens** bloqueia o fechamento do caixa (erro lista os nomes). Comanda `OPEN` vazia não bloqueia de propósito — ela também não pode ser fechada, então bloquear por causa dela travaria o caixa pra sempre
+
+### Fiado (`Customer` / `Debt` / `DebtPayment`)
+- Fiado **NÃO** é `PaymentMethod`. É ação separada (`POST /tabs/:id/fiado`). Isso é garantia estrutural, não estilo: mantendo `PaymentMethod` só com dinheiro de verdade, TODA soma sobre esse enum é dinheiro que entrou — inclusive `expectedAmount`. Se `FIADO` virasse forma de pagamento, a gaveta passaria a "faltar" o valor do crédito
+- Fiado exige `Customer` cadastrado — `Tab.customerName` é texto livre e texto livre não identifica devedor
+- Comanda no fiado fica `CLOSED` com `paymentMethod: null` e ganha um `Debt`. Comanda `CLOSED` sem `paymentMethod` é fiado, não bug — quem for filtrar por forma de pagamento tem que contar com esse caso
+- `Debt.amount` É persistido (diferente de `Tab.total`): não é total derivado, é o valor combinado quando a mercadoria saiu, e não pode mudar depois. Já o **saldo** nunca é persistido — sempre `amount - soma dos pagamentos`
+- Pagamento parcial é permitido; `Debt.status` só vira `PAID` quando o saldo zera
+- Dar fiado NÃO exige caixa aberto (não entra dinheiro). **Receber** fiado exige — é o que faz a gaveta bater
+- Pagamento entra no caixa do dia em que foi **pago**, não no caixa que deu o fiado
+- Os totais do turno são vários de propósito, e vale a identidade `soldTotal = receivedTotal - debtPaymentsTotal + fiadoTotal`. Fiado foi vendido e não recebido; fiado antigo pago hoje foi recebido e não vendido hoje. Somar num número só ou infla o faturamento (mesmo valor contado no dia da venda e no do pagamento) ou fura a gaveta
 
 ### Combo (delivery — pausado)
 - Combo tem `ComboGrupo` (ex: "Escolha 2 refrigerantes") com `quantidadeEscolha`
