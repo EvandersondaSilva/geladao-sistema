@@ -1,7 +1,7 @@
 import prismaClient from "../../prisma";
 import { AppError } from "../../errors/AppError";
 import { tabSelect } from "../../prisma/selects";
-import { calculateTabTotal } from "../tab/calculateTabTotal";
+import { presentTab } from "../tab/presentTab";
 import { calculateCashRegisterTotals } from "./calculateCashRegisterTotals";
 
 class GetCashRegisterService {
@@ -65,7 +65,7 @@ class GetCashRegisterService {
             ? null
             : cashRegister.reportedClosingAmount - totals.expectedAmount,
         sales,
-        tabs: tabs.map((tab) => ({ ...tab, total: calculateTabTotal(tab.items) })),
+        tabs: tabs.map(presentTab),
       };
     } catch (error) {
       if (error instanceof AppError) {

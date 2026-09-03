@@ -7,6 +7,10 @@ export const listTabsSchema = z.object({
         message: "status precisa ser OPEN, CLOSED ou CANCELLED",
       })
       .optional(),
+    staleHours: z.coerce
+      .number({ message: "staleHours precisa ser um número" })
+      .min(0, { message: "staleHours não pode ser negativo" })
+      .optional(),
   }),
 });
 

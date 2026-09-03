@@ -57,7 +57,9 @@ independentes e NÃO precisam ser mantidas em sincronia. Decisão de domínio aq
 - `cancel` NÃO exige caixa `OPEN` (a comanda vazia sobrevive ao caixa dela — exigir travaria justamente o que a rota limpa) e só aceita comanda sem item ativo (cancelar nunca mexe em estoque; item se remove um a um, cada um com seu estorno)
 - `Tab.closedAt` = quando saiu de `OPEN`: pagamento se `CLOSED`, descarte se `CANCELLED`. Somar faturamento filtrando só por `closedAt` conta comanda cancelada — sempre filtrar por `status`
 - Fechamento de caixa: `expectedAmount`/`totalRevenue` somam `Sale` + `Tab` fechada do mesmo caixa. `Tab.total` não é coluna, então não dá pra agregar em SQL — soma em JS a partir dos itens
-- Essa conta mora em `calculateCashRegisterTotals` (recebe `tx` ou o client) e é usada tanto pelo fechamento quanto pelo `GET /cash-registers/:id` — nunca duplicar, senão as duas telas divergem sobre o mesmo turno. `expectedAmount` = abertura + só o que entrou em `CASH`
+- Essa conta mora em `calculateRevenueTotals` (recebe `tx` ou o client; filtra por caixa OU por período) e é usada pelo fechamento, pelo `GET /cash-registers/:id` e pelos relatórios — nunca duplicar, senão relatório do mês discorda dos turnos que o compõem. `calculateCashRegisterTotals` é só o wrapper que acrescenta `expectedAmount` = abertura + o que entrou em `CASH`
+- Comanda entra no faturamento pelo `closedAt`, não pelo `openedAt` — receita se realiza quando a conta é acertada
+- Todo retorno de comanda passa por `presentTab` (acrescenta `total` e `openMinutes`). `openMinutes` vem do relógio do SERVIDOR — a máquina do balcão pode estar com a hora errada, e esse número é o que distingue comanda de dívida
 - Comanda `OPEN` **com itens** bloqueia o fechamento do caixa (erro lista os nomes). Comanda `OPEN` vazia não bloqueia de propósito — ela também não pode ser fechada, então bloquear por causa dela travaria o caixa pra sempre
 
 ### Fiado (`Customer` / `Debt` / `DebtPayment`)

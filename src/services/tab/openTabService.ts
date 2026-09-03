@@ -1,7 +1,7 @@
 import prismaClient from "../../prisma";
 import { AppError } from "../../errors/AppError";
 import { tabSelect } from "../../prisma/selects";
-import { calculateTabTotal } from "./calculateTabTotal";
+import { presentTab } from "./presentTab";
 
 interface OpenTabRequest {
   customerName: string;
@@ -31,7 +31,7 @@ class OpenTabService {
         });
       });
 
-      return { ...tab, total: calculateTabTotal(tab.items) };
+      return presentTab(tab);
     } catch (error) {
       if (error instanceof AppError) {
         throw error;

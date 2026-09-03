@@ -328,6 +328,12 @@ Lista comandas com itens e total, mais recente primeiro. Filtro opcional `?statu
 `?status=OPEN` é a visão "quem está consumindo agora", e é o que a tela principal do PDV deve usar.
 Sem filtro vem tudo, inclusive comanda cancelada.
 
+`?staleHours=N` traz só comandas abertas há mais de N horas — o alerta de comanda esquecida. Combine com
+`?status=OPEN&staleHours=12`.
+
+Cada comanda vem com `openMinutes`, há quanto tempo está aberta, **calculado no relógio do servidor** (a
+máquina do balcão pode estar com a hora errada). Para comanda já fechada, é quanto tempo ela ficou aberta.
+
 ```json
 // 200
 [
@@ -342,7 +348,8 @@ Sem filtro vem tudo, inclusive comanda cancelada.
     "items": [
       { "id": "ae275e08-2b20-4ca8-8c83-1ec14ebd39c9", "productId": "a65b8d90-d220-4674-a4d2-d30779c52c88", "product": { "name": "Coca-Cola 350ml" }, "quantity": 3, "unitPrice": 500, "createdAt": "2026-08-27T05:10:43.056Z" }
     ],
-    "total": 1500
+    "total": 1500,
+    "openMinutes": 73
   }
 ]
 ```
@@ -607,6 +614,61 @@ do **pagamento**, não no caixa que deu o fiado.
 // 409 — dívida já quitada, ou caixa não está aberto
 { "error": "Fiado já está quitado" }
 ```
+
+---
+
+## Relatórios
+
+Os dois relatórios usam **a mesma conta** do resumo de turno (`calculateRevenueTotals`), só que filtrada por
+período em vez de por caixa. Por isso um relatório do mês nunca pode discordar dos turnos que o compõem.
+
+### `GET /reports/revenue` `[feito]`
+
+Faturamento no período. Filtros opcionais `?dateFrom=` e `?dateTo=` (data ISO); sem filtro, tudo.
+
+```json
+// 200
+{
+  "dateFrom": "2026-09-01T00:00:00.000Z",
+  "dateTo": null,
+  "soldTotal": 12500,
+  "fiadoTotal": 2500,
+  "debtPaymentsTotal": 2000,
+  "receivedTotal": 12000,
+  "byPaymentMethod": { "CASH": 9000, "CARD": 1500, "PIX": 1500 },
+  "salesCount": 4,
+  "tabsCount": 8,
+  "outstandingDebtTotal": 500
+}
+```
+
+Os campos de dinheiro são os mesmos do resumo de turno (ver a tabela em **Fiado**), e vale a mesma
+identidade `soldTotal = receivedTotal - debtPaymentsTotal + fiadoTotal`.
+
+`outstandingDebtTotal` é o fiado **ainda em aberto** — de propósito NÃO é filtrado pelo período: é um saldo
+corrente ("quanto tem pendurado agora"), não algo que aconteceu dentro daquelas datas.
+
+Uma comanda entra pelo `closedAt`, não pelo `openedAt` — receita se realiza quando a conta é acertada.
+
+### `GET /reports/products` `[feito]`
+
+Ranking de produtos por quantidade vendida. Filtros opcionais `?dateFrom=`, `?dateTo=`, `?limit=`.
+
+```json
+// 200
+{
+  "dateFrom": null,
+  "dateTo": null,
+  "products": [
+    { "productId": "a65b8d90…", "name": "Coca-Cola 350ml", "quantity": 25, "revenue": 12500 }
+  ]
+}
+```
+
+Soma **venda no balcão + item de comanda** — um ranking que lesse só `sale_items` ignoraria tudo que foi
+consumido em comanda, que num bar é a maior parte. Item cancelado não conta, e só comanda já fechada entra,
+pra ficar em pé de igualdade com o relatório de faturamento (comanda aberta ainda não foi vendida, embora o
+estoque dela já tenha saído).
 
 ---
 

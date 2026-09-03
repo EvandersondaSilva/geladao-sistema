@@ -54,6 +54,12 @@ import { CreateCustomerController } from "./controllers/customer/createCustomerC
 import { ListCustomerController } from "./controllers/customer/listCustomerController";
 import { GetCustomerController } from "./controllers/customer/getCustomerController";
 import { UpdateCustomerController } from "./controllers/customer/updateCustomerController";
+import {
+  getProductSalesReportSchema,
+  getRevenueReportSchema,
+} from "./schemas/reportSchema";
+import { GetRevenueReportController } from "./controllers/report/getRevenueReportController";
+import { GetProductSalesReportController } from "./controllers/report/getProductSalesReportController";
 import { getDebtSchema, listDebtsSchema, payDebtSchema } from "./schemas/debtSchema";
 import { ListDebtController } from "./controllers/debt/listDebtController";
 import { GetDebtController } from "./controllers/debt/getDebtController";
@@ -254,6 +260,21 @@ routes.post(
   checkOperatorPin,
   validateSchema(payDebtSchema),
   new PayDebtController().handle
+);
+
+// revenue over a period — same calculation the shift summary uses, so a monthly
+// report can never disagree with the shifts it is made of
+routes.get(
+  "/reports/revenue",
+  validateSchema(getRevenueReportSchema),
+  new GetRevenueReportController().handle
+);
+
+// best sellers — counter sales and tab items folded together, ranked by quantity
+routes.get(
+  "/reports/products",
+  validateSchema(getProductSalesReportSchema),
+  new GetProductSalesReportController().handle
 );
 
 // stock movement audit trail (filter by productId/reason/date range)

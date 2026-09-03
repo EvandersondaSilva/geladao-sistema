@@ -2,6 +2,7 @@ import prismaClient from "../../prisma";
 import { AppError } from "../../errors/AppError";
 import { tabSelect } from "../../prisma/selects";
 import { calculateTabTotal } from "./calculateTabTotal";
+import { presentTab } from "./presentTab";
 
 interface MarkTabAsFiadoRequest {
   tabId: string;
@@ -82,8 +83,7 @@ class MarkTabAsFiadoService {
       });
 
       return {
-        ...result.tab,
-        total: calculateTabTotal(result.tab.items),
+        ...presentTab(result.tab),
         debt: { ...result.debt, balance: result.debt.amount },
       };
     } catch (error) {

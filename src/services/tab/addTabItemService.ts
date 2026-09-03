@@ -1,7 +1,7 @@
 import prismaClient from "../../prisma";
 import { AppError } from "../../errors/AppError";
 import { tabSelect } from "../../prisma/selects";
-import { calculateTabTotal } from "./calculateTabTotal";
+import { presentTab } from "./presentTab";
 
 interface AddTabItemRequest {
   tabId: string;
@@ -71,7 +71,7 @@ class AddTabItemService {
         return tx.tab.findUniqueOrThrow({ where: { id: tabId }, select: tabSelect });
       });
 
-      return { ...tab, total: calculateTabTotal(tab.items) };
+      return presentTab(tab);
     } catch (error) {
       if (error instanceof AppError) {
         throw error;

@@ -1,7 +1,7 @@
 import prismaClient from "../../prisma";
 import { AppError } from "../../errors/AppError";
 import { tabSelect } from "../../prisma/selects";
-import { calculateTabTotal } from "./calculateTabTotal";
+import { presentTab } from "./presentTab";
 
 class GetTabService {
   async execute(id: string) {
@@ -15,7 +15,7 @@ class GetTabService {
         throw new AppError("Comanda não encontrada", 404);
       }
 
-      return { ...tab, total: calculateTabTotal(tab.items) };
+      return presentTab(tab);
     } catch (error) {
       if (error instanceof AppError) {
         throw error;
