@@ -8,7 +8,11 @@ class CloseTabController {
 
     const closeTabService = new CloseTabService();
 
-    const tab = await closeTabService.execute({ id: tabId, paymentMethod });
+    const tab = await closeTabService.execute({
+      id: tabId,
+      paymentMethod,
+      closedById: req.userId as string,
+    });
 
     res.status(200).json(tab);
   }

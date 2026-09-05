@@ -1,19 +1,13 @@
 import prismaClient from "../../prisma";
 import { AppError } from "../../errors/AppError";
+import { cashRegisterSelect } from "../../prisma/selects";
 
 class GetCurrentCashRegisterService {
   async execute() {
     try {
       const cashRegister = await prismaClient.cashRegister.findFirst({
         where: { status: "OPEN" },
-        select: {
-          id: true,
-          status: true,
-          openingAmount: true,
-          reportedClosingAmount: true,
-          openedAt: true,
-          closedAt: true,
-        },
+        select: cashRegisterSelect,
       });
 
       return cashRegister;

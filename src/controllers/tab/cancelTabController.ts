@@ -7,7 +7,7 @@ class CancelTabController {
 
     const cancelTabService = new CancelTabService();
 
-    const tab = await cancelTabService.execute(tabId);
+    const tab = await cancelTabService.execute({ id: tabId, closedById: req.userId as string });
 
     res.status(200).json(tab);
   }

@@ -1,19 +1,13 @@
 import prismaClient from "../../prisma";
 import { AppError } from "../../errors/AppError";
+import { cashRegisterSelect } from "../../prisma/selects";
 
 class ListCashRegisterService {
   async execute(status?: "OPEN" | "CLOSED") {
     try {
       const cashRegisters = await prismaClient.cashRegister.findMany({
         where: { ...(status && { status }) },
-        select: {
-          id: true,
-          status: true,
-          openingAmount: true,
-          reportedClosingAmount: true,
-          openedAt: true,
-          closedAt: true,
-        },
+        select: cashRegisterSelect,
         orderBy: { openedAt: "desc" },
       });
 

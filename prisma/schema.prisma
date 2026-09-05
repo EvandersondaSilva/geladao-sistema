@@ -13,6 +13,7 @@ datasource db {
 
 enum Role {
   ADMIN
+  OPERATOR
 }
 
 enum OrderStatus {
@@ -69,7 +70,6 @@ model Settings {
   minOrderValue Int     @default(1000) // in cents
   deliveryFee   Int     @default(0) // in cents
   pixKey        String? // pix key shown at delivery checkout
-  operatorPin   String? // shared PIN/password to unlock the PDV screen
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -78,11 +78,19 @@ model Settings {
 }
 
 model User {
-  id       String @id @default(uuid())
+  id       String  @id @default(uuid())
   name     String
-  email    String @unique
-  password String
-  role     Role   @default(ADMIN)
+  email    String  @unique
+  password String // bcrypt hash, never the plain text — never select this field back to a client
+  role     Role    @default(OPERATOR)
+  // Deactivating an employee who left is soft, like Product.available — a hard
+  // delete would erase who opened/closed the shifts and tabs they touched.
+  active   Boolean @default(true)
+
+  cashRegistersOpened CashRegister[] @relation("CashRegisterOpenedBy")
+  cashRegistersClosed CashRegister[] @relation("CashRegisterClosedBy")
+  tabsClosed          Tab[]          @relation("TabClosedBy")
+  debtPaymentsReceived DebtPayment[] @relation("DebtPaymentReceivedBy")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -152,6 +160,13 @@ model CashRegister {
   debts        Debt[]
   debtPayments DebtPayment[]
 
+  // Who opened/closed this shift — nullable because rows created before login
+  // existed have no author, and the API just shows "no author" for those.
+  openedById String?
+  openedBy   User?   @relation("CashRegisterOpenedBy", fields: [openedById], references: [id])
+  closedById String?
+  closedBy   User?   @relation("CashRegisterClosedBy", fields: [closedById], references: [id])
+
   openedAt DateTime  @default(now())
   closedAt DateTime?
 
@@ -215,6 +230,11 @@ model Tab {
   items TabItem[]
 
   debt Debt?
+
+  // Whoever performed the transition out of OPEN — a normal close, a fiado
+  // close, or a cancel. One field covers all three, mirroring closedAt below.
+  closedById String?
+  closedBy   User?   @relation("TabClosedBy", fields: [closedById], references: [id])
 
   openedAt DateTime @default(now())
   // when the tab stopped being OPEN — the moment it was paid for a CLOSED tab,
@@ -342,6 +362,10 @@ model DebtPayment {
   // gave the credit: a debt from last week paid today belongs in today's drawer.
   cashRegisterId String
   cashRegister   CashRegister @relation(fields: [cashRegisterId], references: [id])
+
+  // who took the payment
+  receivedById String?
+  receivedBy   User?   @relation("DebtPaymentReceivedBy", fields: [receivedById], references: [id])
 
   createdAt DateTime @default(now())
 

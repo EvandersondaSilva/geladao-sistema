@@ -11,6 +11,7 @@ class CloseCashRegisterController {
     const cashRegister = await closeCashRegisterService.execute({
       id: cashRegisterId,
       reportedClosingAmount,
+      closedById: req.userId as string,
     });
 
     res.status(200).json(cashRegister);

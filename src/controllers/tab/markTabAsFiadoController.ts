@@ -8,7 +8,11 @@ class MarkTabAsFiadoController {
 
     const markTabAsFiadoService = new MarkTabAsFiadoService();
 
-    const tab = await markTabAsFiadoService.execute({ tabId, customerId });
+    const tab = await markTabAsFiadoService.execute({
+      tabId,
+      customerId,
+      closedById: req.userId as string,
+    });
 
     res.status(200).json(tab);
   }

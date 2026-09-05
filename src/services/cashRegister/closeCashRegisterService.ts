@@ -1,14 +1,16 @@
 import prismaClient from "../../prisma";
 import { AppError } from "../../errors/AppError";
+import { cashRegisterSelect } from "../../prisma/selects";
 import { calculateCashRegisterTotals } from "./calculateCashRegisterTotals";
 
 interface CloseCashRegisterRequest {
   id: string;
   reportedClosingAmount: number;
+  closedById: string;
 }
 
 class CloseCashRegisterService {
-  async execute({ id, reportedClosingAmount }: CloseCashRegisterRequest) {
+  async execute({ id, reportedClosingAmount, closedById }: CloseCashRegisterRequest) {
     try {
       const cashRegister = await prismaClient.$transaction(async (tx) => {
         const current = await tx.cashRegister.findUnique({
@@ -54,15 +56,9 @@ class CloseCashRegisterService {
             status: "CLOSED",
             reportedClosingAmount,
             closedAt: new Date(),
+            closedById,
           },
-          select: {
-            id: true,
-            status: true,
-            openingAmount: true,
-            reportedClosingAmount: true,
-            openedAt: true,
-            closedAt: true,
-          },
+          select: cashRegisterSelect,
         });
 
         return {

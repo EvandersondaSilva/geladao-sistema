@@ -6,10 +6,11 @@ import { presentTab } from "./presentTab";
 interface CloseTabRequest {
   id: string;
   paymentMethod: "CASH" | "CARD" | "PIX";
+  closedById: string;
 }
 
 class CloseTabService {
-  async execute({ id, paymentMethod }: CloseTabRequest) {
+  async execute({ id, paymentMethod, closedById }: CloseTabRequest) {
     try {
       const tab = await prismaClient.$transaction(async (tx) => {
         const current = await tx.tab.findUnique({
@@ -41,7 +42,7 @@ class CloseTabService {
         // by item as each one was added. Creating one now would double-count.
         return tx.tab.update({
           where: { id },
-          data: { status: "CLOSED", paymentMethod, closedAt: new Date() },
+          data: { status: "CLOSED", paymentMethod, closedAt: new Date(), closedById },
           select: tabSelect,
         });
       });

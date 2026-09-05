@@ -31,6 +31,10 @@ independentes e NÃO precisam ser mantidas em sincronia. Decisão de domínio aq
 - `src/services/<entidade>/` — uma classe por ação (`createCategoryService.ts`...), sempre `class XService { async execute(...) {...} }`, acessa Prisma e lança `AppError` em caso de falha
 - `src/schemas/<entidade>Schema.ts` — UM arquivo por entidade com todos os schemas Zod dela, sempre no formato `z.object({ body, params, query })`
 - `src/middlewares/validateSchema.ts` — middleware genérico que roda o schema Zod e devolve 400 com `details` em caso de erro
+- `src/middlewares/requireAuth.ts` — exige JWT válido (`Authorization: Bearer`), confere `User.active` no banco a cada request (não é 100% stateless de propósito) e preenche `req.userId`/`req.userRole`
+- `src/middlewares/requireAdmin.ts` — roda depois de `requireAuth`, barra com 403 quem não é `ADMIN`
+- `src/middlewares/optionalAuth.ts` — como `requireAuth`, mas nunca rejeita; só usado em `POST /users` pra permitir o bootstrap do primeiro `ADMIN` sem token
+- `src/auth/jwt.ts` — `signToken`/`verifyToken`, único lugar que lê `JWT_SECRET`
 - `src/errors/AppError.ts` — erro de negócio com `statusCode`, lançado dentro dos services, capturado pelo error handler global em `server.ts`
 - `src/prisma/index.ts` — client Prisma singleton, `export default`. Como o projeto está no Prisma 7, exige `PrismaPg` (driver adapter) no construtor
 - `src/prisma/selects.ts` — objetos `select` reaproveitados entre services (`productSelect`, `tabSelect`...), pra duas rotas não devolverem shapes diferentes da mesma entidade
@@ -40,6 +44,15 @@ independentes e NÃO precisam ser mantidas em sincronia. Decisão de domínio aq
 - Conta que mais de um service precisa vira função compartilhada, não código copiado (`calculateTabTotal`, `calculateCashRegisterTotals`) — senão duas telas divergem sobre o mesmo número
 
 ## Domain Rules (crítico)
+
+### Autenticação (`User` / `Role`)
+- Login individual por funcionário substituiu o PIN único compartilhado — decisão do cliente depois de ver, num concorrente, que login individual sabe dizer *quem* fez cada ação. PIN nunca soube
+- Dois papéis: `ADMIN` (dono/gerente — cadastro de categoria/produto, `/reports/*`, `/users/*`) e `OPERATOR` (funcionário de balcão — caixa, venda, comanda, fiado, ajuste de estoque, cadastro de cliente)
+- JWT stateless, expira em 12h, mas `requireAuth` consulta o banco em toda request pra conferir `User.active` — desativar um funcionário funciona *na hora*, não só depois do token expirar. Esse é o motivo de existir a feature, então não vale trocar por um JWT puro sem lookup
+- Só `ADMIN` cria conta de outro funcionário — exceto o bootstrap do primeiro usuário (tabela `users` vazia), que não exige login, mesmo padrão que o PIN antigo já usava pra se configurar a primeira vez
+- Desativar funcionário é *soft* (`User.active = false`), igual `Product.available` — nunca `DELETE`: apagaria o autor de `CashRegister`/`Tab`/`DebtPayment` passados
+- Autoria gravada só nas ações de confiança alta — abrir/fechar caixa (`CashRegister.openedById`/`closedById`), fechar comanda de qualquer jeito (`Tab.closedById`, cobre fechamento normal, fiado e cancelamento), receber pagamento de fiado (`DebtPayment.receivedById`). Não em toda escrita (não em cada item de comanda, por exemplo) — accountability onde dinheiro ou crédito muda de mão, sem inchar o schema
+- Todos os campos de autoria são `nullable` — dado criado antes do login existir não tem autor, e a API mostra `null` pra esses casos, não erro
 
 ### Estoque (vale pra todo o domínio)
 - Toda baixa/entrada de estoque (venda no balcão, item de comanda, produto avulso ou item de combo) gera registro em `MovimentoEstoque` — nunca decrementa `Produto.estoqueAtual` sem esse registro
@@ -87,7 +100,7 @@ independentes e NÃO precisam ser mantidas em sincronia. Decisão de domínio aq
 - Toda mutação de estoque roda dentro de `prisma.$transaction` (evita race condition)
 
 ## Environment Variables
-- `.env` — `DATABASE_URL`, `PORT`, `CORS_ORIGIN`
+- `.env` — `DATABASE_URL`, `PORT`, `CORS_ORIGIN`, `JWT_SECRET` (assina/verifica o login — string longa e aleatória, nunca reaproveitar o placeholder do `.env.example`)
 - Nunca commitar `.env` — confirmar `.gitignore`
 - Copiar `.env.example` ao clonar
 
@@ -103,3 +116,4 @@ independentes e NÃO precisam ser mantidas em sincronia. Decisão de domínio aq
 - Depois de `prisma generate`, o `npm run dev` que já estava rodando continua servindo o client ANTIGO — sintoma: endpoint novo devolve 500 genérico enquanto um script avulso com o mesmo código funciona. Matar e subir de novo o servidor NÃO resolveu; o que destravou foi salvar qualquer arquivo em `src/` pra forçar o ts-node-dev a recompilar. Se um valor de enum recém-criado der erro só pela API, é isso — não é o banco
 - Baixa de estoque de combo referencia sempre `produtoEscolhidoId` (o que o cliente escolheu), nunca um "produto padrão" do combo — combo não tem produto padrão, só opções
 - `precoUnitario` em `ItemPedido` é snapshot no momento da compra — nunca recalcular puxando preço atual do produto
+- `npx prisma migrate dev` recusa rodar num terminal não-interativo (agente de IA, CI) assim que a migration tem qualquer aviso de perda de dado (`ALTER TABLE ... DROP COLUMN` com linha não-nula, por exemplo) — trava com "non-interactive environment... not supported", mesmo com `y\n` no stdin. Contorno: gerar o SQL com `npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script`, salvar manualmente em `prisma/migrations/<timestamp>_nome/migration.sql`, e aplicar com `npx prisma migrate deploy` (não pede confirmação). Prisma 7 também trocou os flags do `migrate diff` — não é mais `--from-url`, é `--from-config-datasource`/`--to-schema`

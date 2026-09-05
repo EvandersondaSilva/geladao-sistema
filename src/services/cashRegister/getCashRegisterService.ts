@@ -1,6 +1,6 @@
 import prismaClient from "../../prisma";
 import { AppError } from "../../errors/AppError";
-import { tabSelect } from "../../prisma/selects";
+import { cashRegisterSelect, tabSelect } from "../../prisma/selects";
 import { presentTab } from "../tab/presentTab";
 import { calculateCashRegisterTotals } from "./calculateCashRegisterTotals";
 
@@ -9,14 +9,7 @@ class GetCashRegisterService {
     try {
       const cashRegister = await prismaClient.cashRegister.findUnique({
         where: { id },
-        select: {
-          id: true,
-          status: true,
-          openingAmount: true,
-          reportedClosingAmount: true,
-          openedAt: true,
-          closedAt: true,
-        },
+        select: cashRegisterSelect,
       });
 
       if (!cashRegister) {

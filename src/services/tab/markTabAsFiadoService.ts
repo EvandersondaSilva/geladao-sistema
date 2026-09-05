@@ -7,10 +7,11 @@ import { presentTab } from "./presentTab";
 interface MarkTabAsFiadoRequest {
   tabId: string;
   customerId: string;
+  closedById: string;
 }
 
 class MarkTabAsFiadoService {
-  async execute({ tabId, customerId }: MarkTabAsFiadoRequest) {
+  async execute({ tabId, customerId, closedById }: MarkTabAsFiadoRequest) {
     try {
       const result = await prismaClient.$transaction(async (tx) => {
         const current = await tx.tab.findUnique({
@@ -57,7 +58,7 @@ class MarkTabAsFiadoService {
         // the money lives in the debt from now on.
         const tab = await tx.tab.update({
           where: { id: tabId },
-          data: { status: "CLOSED", closedAt: new Date() },
+          data: { status: "CLOSED", closedAt: new Date(), closedById },
           select: tabSelect,
         });
 

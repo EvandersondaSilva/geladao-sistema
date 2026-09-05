@@ -10,47 +10,88 @@
 > Valores monetários (`price`, `openingAmount`, `total`...) são sempre inteiros em **centavos**.
 > Erro padrão: `{ "error": "mensagem" }`. Erro de validação (Zod): `{ "error": "Erro validação", "details": [{ "campo": "...", "mensagem": "..." }] }`.
 
-## Autenticação (PIN do operador)
+## Autenticação (login individual)
 
-Sem login individual de funcionário — decisão consciente do cliente, quem opera o caixa é o próprio admin.
-Como proteção mínima do lado da API (o front sozinho não impede alguém de chamar a API direto), toda rota de
-escrita (`POST`/`PATCH`/`DELETE`) exige o header `x-operator-pin` com o PIN compartilhado cadastrado em
-`Settings.operatorPin`. Rotas de leitura (`GET`) continuam públicas. Se `Settings.operatorPin` ainda não
-estiver configurado no banco, toda rota de escrita responde `503`.
+Cada funcionário tem sua própria conta (`User`: nome, e-mail, senha, `role`). Substituiu o PIN único
+compartilhado que o sistema usava antes — decisão do cliente, depois de ver que o PIN nunca sabia dizer
+*quem* fez a ação (por exemplo, quem deu fiado sem autorização).
 
-**Decisão de UX (front)**: o operador digita o PIN uma vez pra "destravar a tela", não a cada ação. O front
-guarda o PIN em `sessionStorage` (sobrevive a refresh da aba, não a fechar o navegador) e anexa ele
-automaticamente como `x-operator-pin` em toda chamada de escrita. Um botão de "trancar caixa" limpa o
-`sessionStorage` e volta pra tela de PIN. `localStorage` foi descartado de propósito — persistir o PIN
-indefinidamente anularia a ideia de tela travada. Fluxo de entrada: `GET /operator-pin/status` decide se a
-tela mostra "definir PIN" (`configured: false`) ou "digite o PIN" (`configured: true`).
+Dois papéis:
+- **`ADMIN`** — dono/gerente. Cadastro (categoria, produto), relatórios (`/reports/*`), cria e gerencia
+  conta de funcionário (`/users/*`)
+- **`OPERATOR`** — funcionário de balcão. Opera o PDV do dia a dia: caixa, venda, comanda, fiado, ajuste de
+  estoque, cadastro de cliente (pra dar fiado). Não mexe em categoria/produto nem vê relatório
 
-### `GET /operator-pin/status` `[feito]`
+Login: `POST /auth/login` devolve um JWT (`Authorization: Bearer <token>`, válido por **12h**). Toda rota
+autenticada verifica o token **e** consulta o banco a cada request (confere se o usuário continua `active`)
+— não é 100% stateless de propósito: é o que faz desativar um funcionário problemático valer *na hora*, não
+só depois do token expirar.
 
-Retorna se o PIN já foi configurado — nunca o valor do PIN.
+Rotas de leitura internas do PDV (`/cash-registers*`, `/sales*`, `/tabs*`, `/customers*`, `/debts*`,
+`/stock-movements`, `/products/low-stock`) agora também exigem login — antes eram públicas por herdar o
+modelo do PIN (só a escrita era travada). `GET /products` e `GET /categories` continuam públicas —
+alimentam o catálogo do futuro site de delivery.
+
+### `POST /auth/login` `[feito]`
 
 ```json
+// request
+{ "email": "dono@geladao.com", "password": "senha123" }
+
 // 200
-{ "configured": true }
+{
+  "token": "eyJhbGciOiJIUzI1NiIs...",
+  "user": { "id": "6c959207…", "name": "Dono", "email": "dono@geladao.com", "role": "ADMIN" }
+}
+
+// 401 — e-mail ou senha errados (mesma mensagem pros dois casos, de propósito)
+{ "error": "E-mail ou senha inválidos" }
 ```
 
-### `PATCH /operator-pin` `[feito]`
+### `GET /auth/me` `[feito]` — requer login
 
-Define o PIN a primeira vez (sem exigir nada) ou troca um já existente (exige `currentPin` correto).
-Nunca ecoa o PIN na resposta. Não exige o header `x-operator-pin`.
+Devolve o usuário do token atual — o front usa isso pra restaurar nome/papel depois de um refresh de página.
+
+### `POST /users` `[feito]`
+
+Cria conta de funcionário. Funciona de dois jeitos:
+- **Tabela `users` vazia** (instalação nova): cria o primeiro usuário como `ADMIN`, sem exigir login —
+  mesmo bootstrap que o PIN antigo já tinha ("sem PIN configurado, não exige prova"). Ignora qualquer
+  `role` enviada, o primeiro usuário é sempre `ADMIN`
+- **Já existe usuário**: exige login como `ADMIN`; `role` vira `OPERATOR` se não for enviada
 
 ```json
-// request — primeira vez (bootstrap)
-{ "newPin": "1234" }
+// request
+{ "name": "Funcionario", "email": "func@geladao.com", "password": "senha123", "role": "OPERATOR" }
 
-// request — trocando um PIN existente
-{ "currentPin": "1234", "newPin": "5678" }
+// 201 — nunca ecoa a senha
+{ "id": "1e034f0c…", "name": "Funcionario", "email": "func@geladao.com", "role": "OPERATOR", "active": true, "createdAt": "…" }
 
-// 200
-{ "id": "977cb18b-bf87-43da-bb1b-5c07352abbfd", "updatedAt": "2026-08-26T04:05:54.285Z" }
+// 401 — tabela não está vazia e não veio token
+{ "error": "Login necessário" }
 
-// 401 — currentPin não bate com o PIN atual
-{ "error": "currentPin inválido" }
+// 403 — logado, mas não é ADMIN
+{ "error": "Ação restrita a administradores" }
+
+// 409 — e-mail já cadastrado
+{ "error": "E-mail já cadastrado" }
+```
+
+`password` exige no mínimo 6 caracteres.
+
+### `GET /users` `[feito]` — requer login ADMIN
+
+Lista funcionários (nunca inclui senha).
+
+### `PATCH /users/:id` `[feito]` — requer login ADMIN
+
+Edita `name`/`role`/`active`. Desativar (`active: false`) é como `Product.available` — nunca `DELETE` um
+usuário: apagaria quem abriu/fechou caixas e comandas no passado. Usuário desativado não consegue mais
+logar, e qualquer token dele já emitido para de funcionar na próxima request (não espera os 12h expirarem).
+
+```json
+// request
+{ "active": false }
 ```
 
 ---
@@ -59,7 +100,8 @@ Nunca ecoa o PIN na resposta. Não exige o header `x-operator-pin`.
 
 ### `POST /cash-registers` `[feito]`
 
-Abre um caixa. Bloqueia se já existir caixa `OPEN` (transação Serializable). Requer `x-operator-pin`.
+Abre um caixa. Bloqueia se já existir caixa `OPEN` (transação Serializable). Requer login. Grava quem
+abriu (`openedBy`).
 
 ```json
 // request
@@ -70,7 +112,9 @@ Abre um caixa. Bloqueia se já existir caixa `OPEN` (transação Serializable). 
   "id": "4c920a93-1931-460b-88a4-6b61365deb97",
   "status": "OPEN",
   "openingAmount": 10000,
-  "openedAt": "2026-08-24T03:47:54.685Z"
+  "openedAt": "2026-08-24T03:47:54.685Z",
+  "openedBy": { "id": "6c959207…", "name": "Dono" },
+  "closedBy": null
 }
 
 // 409 — já existe um caixa aberto
@@ -92,7 +136,9 @@ null
   "openingAmount": 10000,
   "reportedClosingAmount": null,
   "openedAt": "2026-08-24T03:47:54.685Z",
-  "closedAt": null
+  "closedAt": null,
+  "openedBy": { "id": "6c959207…", "name": "Dono" },
+  "closedBy": null
 }
 ```
 
@@ -109,7 +155,9 @@ Lista caixas, mais recente primeiro. Filtro opcional `?status=OPEN|CLOSED`.
     "openingAmount": 10000,
     "reportedClosingAmount": 11500,
     "openedAt": "2026-08-24T03:47:54.685Z",
-    "closedAt": "2026-08-24T03:48:49.190Z"
+    "closedAt": "2026-08-24T03:48:49.190Z",
+    "openedBy": { "id": "6c959207…", "name": "Dono" },
+    "closedBy": { "id": "1e034f0c…", "name": "Funcionario" }
   }
 ]
 ```
@@ -166,7 +214,8 @@ nenhum total.
 ### `POST /cash-registers/:id/close` `[feito]`
 
 Fecha o caixa. Calcula na hora (não persiste) `expectedAmount` (abertura + recebido em `CASH`),
-`totalRevenue` (tudo, qualquer forma de pagamento) e `difference`. Requer `x-operator-pin`.
+`totalRevenue` (tudo, qualquer forma de pagamento) e `difference`. Requer login. Grava quem fechou
+(`closedBy`).
 
 Os dois valores somam **`Sale` + comandas (`Tab`) já fechadas** no mesmo caixa — como `Tab` é entidade
 independente (não vira `Sale`), o faturamento de comanda entra por essa soma extra. Comandas ainda `OPEN`
@@ -188,6 +237,8 @@ fecha), então bloquear por causa dela travaria o caixa pra sempre.
   "reportedClosingAmount": 11500,
   "openedAt": "2026-08-24T03:47:54.685Z",
   "closedAt": "2026-08-24T03:48:49.190Z",
+  "openedBy": { "id": "6c959207…", "name": "Dono" },
+  "closedBy": { "id": "1e034f0c…", "name": "Funcionario" },
   "expectedAmount": 11500,
   "soldTotal": 2500,
   "fiadoTotal": 0,
@@ -211,7 +262,7 @@ fecha), então bloquear por causa dela travaria o caixa pra sempre.
 ### `POST /sales` `[feito]`
 
 Registra venda no balcão. Exige caixa `OPEN`. Dentro de `prisma.$transaction` decrementa
-`Product.currentStock` e cria `StockMovement` (`OUTBOUND`/`SALE`) por item. Requer `x-operator-pin`.
+`Product.currentStock` e cria `StockMovement` (`OUTBOUND`/`SALE`) por item. Requer login.
 
 ```json
 // request
@@ -299,7 +350,7 @@ lançado), mesma decisão de `expectedAmount`/`soldTotal` no caixa.
 
 ### `POST /tabs` `[feito]`
 
-Abre uma comanda. Exige caixa `OPEN`. Requer `x-operator-pin`.
+Abre uma comanda. Exige caixa `OPEN`. Requer login.
 
 ```json
 // request
@@ -367,7 +418,7 @@ aqui, já que o nome é rótulo e o que fecha a conta é o `unitPrice`.
 
 Detalhe da comanda com itens e `total` calculado na hora. `404` se não existir.
 
-### `POST /tabs/:id/items` `[feito]` — requer `x-operator-pin`
+### `POST /tabs/:id/items` `[feito]` — requer login
 
 Lança um item na comanda aberta. Decrementa `Product.currentStock` e cria o `StockMovement` na mesma
 transação. Responde com a comanda inteira já atualizada (inclusive o novo `total`), pra tela do PDV não
@@ -386,7 +437,7 @@ precisar de um `GET` logo em seguida.
 { "error": "Estoque insuficiente: disponível 48, solicitado 9999" }
 ```
 
-### `DELETE /tabs/:id/items/:itemId` `[feito]` — requer `x-operator-pin`
+### `DELETE /tabs/:id/items/:itemId` `[feito]` — requer login
 
 Remove item lançado por engano e **estorna o estoque** (`StockMovement` `INBOUND`/`CANCELLATION_REVERSAL`).
 Só funciona com a comanda ainda `OPEN`. Resposta `204` sem corpo.
@@ -406,7 +457,7 @@ real na auditoria. Pra quem consome a API não muda nada — o item some da coma
 { "error": "Comanda já está fechada" }
 ```
 
-### `POST /tabs/:id/close` `[feito]` — requer `x-operator-pin`
+### `POST /tabs/:id/close` `[feito]` — requer login
 
 Fecha a comanda: escolhe `paymentMethod`, seta `status: CLOSED` e `closedAt`. Não mexe em estoque.
 
@@ -438,7 +489,7 @@ Fecha a comanda: escolhe `paymentMethod`, seta `status: CLOSED` e `closedAt`. N�
 
 `paymentMethod`: `"CASH" | "CARD" | "PIX"`.
 
-### `POST /tabs/:id/cancel` `[feito]` — requer `x-operator-pin`
+### `POST /tabs/:id/cancel` `[feito]` — requer login
 
 Descarta uma comanda vazia — nome digitado errado, cliente que desistiu antes de consumir, ou comanda que
 ficou sem item porque tudo que foi lançado acabou removido. Sem essa rota a comanda ficaria `OPEN` pra
@@ -511,7 +562,7 @@ terça:   soldTotal=0     fiadoTotal=0     receivedTotal=2000  expectedAmount=70
                                           debtPaymentsTotal=2000
 ```
 
-### `POST /tabs/:id/fiado` `[feito]` — requer `x-operator-pin`
+### `POST /tabs/:id/fiado` `[feito]` — requer login
 
 Fecha a comanda no fiado em vez de receber. A comanda vira `CLOSED` com `paymentMethod: null` (não foi paga)
 e nasce a dívida. Não mexe em estoque — a baixa já ocorreu item a item, igual no fechamento normal.
@@ -523,6 +574,7 @@ e nasce a dívida. Não mexe em estoque — a baixa já ocorreu item a item, igu
 // 200 — a comanda fechada, com a dívida criada junto
 {
   "id": "…", "customerName": "Joao", "status": "CLOSED", "paymentMethod": null, "total": 2000,
+  "closedBy": { "id": "1e034f0c…", "name": "Funcionario" },
   "items": [ … ],
   "debt": { "id": "…", "customerId": "35b19d1f…", "amount": 2000, "balance": 2000, "status": "OPEN" }
 }
@@ -555,15 +607,15 @@ Extrato do cliente: todas as dívidas, cada uma com seus pagamentos e saldo, mai
     {
       "id": "…", "amount": 2000, "balance": 0, "status": "PAID", "tabId": "…", "paidAt": "…",
       "payments": [
-        { "id": "…", "amount": 500, "paymentMethod": "CASH", "cashRegisterId": "…", "createdAt": "…" },
-        { "id": "…", "amount": 1500, "paymentMethod": "CASH", "cashRegisterId": "…", "createdAt": "…" }
+        { "id": "…", "amount": 500, "paymentMethod": "CASH", "cashRegisterId": "…", "receivedBy": { "id": "1e034f0c…", "name": "Funcionario" }, "createdAt": "…" },
+        { "id": "…", "amount": 1500, "paymentMethod": "CASH", "cashRegisterId": "…", "receivedBy": { "id": "1e034f0c…", "name": "Funcionario" }, "createdAt": "…" }
       ]
     }
   ]
 }
 ```
 
-### `POST /customers` · `PATCH /customers/:id` `[feito]` — requerem `x-operator-pin`
+### `POST /customers` · `PATCH /customers/:id` `[feito]` — requerem login
 
 ```json
 // request — só name é obrigatório
@@ -595,7 +647,7 @@ que interessa). Filtros opcionais `?status=OPEN|PAID` e `?customerId=`. Traz o n
 
 Uma dívida com seus pagamentos e saldo. `404` se não existir.
 
-### `POST /debts/:id/payments` `[feito]` — requer `x-operator-pin`
+### `POST /debts/:id/payments` `[feito]` — requer login
 
 Recebe (total ou **parcial**) contra uma dívida. **Exige caixa `OPEN`** — diferente de dar fiado, aqui
 entra dinheiro de verdade, e é isso que faz a gaveta bater no fechamento. O dinheiro entra no caixa do dia
@@ -681,7 +733,7 @@ estoque dela já tenha saído).
 [ { "id": "7d99018a-17a1-484e-bd06-0e0281e60af7", "name": "Bebidas", "displayOrder": 0, "createdAt": "2026-08-24T03:47:45.736Z" } ]
 ```
 
-### `POST /categories` `[feito]` — requer `x-operator-pin`
+### `POST /categories` `[feito]` — requer login ADMIN
 
 ```json
 // request
@@ -693,7 +745,7 @@ estoque dela já tenha saído).
 
 `displayOrder` é opcional (default `0`).
 
-### `PATCH /categories/:id` `[feito]` — requer `x-operator-pin`
+### `PATCH /categories/:id` `[feito]` — requer login ADMIN
 
 ```json
 // request
@@ -726,7 +778,7 @@ Lista catálogo — **só produtos com `available: true`**. Filtro opcional `?ca
 ]
 ```
 
-### `POST /products` `[feito]` — requer `x-operator-pin`
+### `POST /products` `[feito]` — requer login ADMIN
 
 ```json
 // request
@@ -745,7 +797,7 @@ Lista catálogo — **só produtos com `available: true`**. Filtro opcional `?ca
 `description`, `imageUrl`, `available`, `currentStock`, `minimumStock` são opcionais. Se `currentStock` vier
 > 0, já gera um `StockMovement` (`INBOUND`/`RESTOCK`) automaticamente.
 
-### `PATCH /products/:id` `[feito]` — requer `x-operator-pin`
+### `PATCH /products/:id` `[feito]` — requer login ADMIN
 
 Não aceita `currentStock` (use `/products/:id/stock`). Serve também para ativar/desativar via `available`.
 
@@ -754,7 +806,7 @@ Não aceita `currentStock` (use `/products/:id/stock`). Serve também para ativa
 { "available": false }
 ```
 
-### `DELETE /products/:id` `[feito]` — requer `x-operator-pin`
+### `DELETE /products/:id` `[feito]` — requer login ADMIN
 
 Bloqueado (`409`) se o produto já tiver venda ou movimento de estoque associado. Resposta `204` sem corpo.
 
@@ -762,7 +814,7 @@ Bloqueado (`409`) se o produto já tiver venda ou movimento de estoque associado
 
 ## Estoque
 
-### `POST /products/:id/stock` `[feito]` — requer `x-operator-pin`
+### `POST /products/:id/stock` `[feito]` — requer login
 
 Entrada/ajuste manual. Cria `StockMovement` dentro de `prisma.$transaction`.
 
@@ -843,7 +895,8 @@ Schema já modelado (`Order`, `OrderItem`, `Combo`, `ComboGroup`...), sem rotas 
 
 ## Decisões de escopo (referência)
 
-- PDV: sem login individual do operador no caixa — PIN/senha compartilhada (`Settings.operatorPin`), decisão consciente do cliente
+- PDV: login individual por funcionário (`User`), dois papéis (`ADMIN`/`OPERATOR`) — substituiu o PIN único compartilhado depois que o cliente visitou um concorrente e viu o valor de saber quem fez cada ação
+- PDV: autoria gravada só nas ações de confiança alta (abrir/fechar caixa, fechar comanda, receber fiado) — não em toda escrita
 - PDV: `Sale` não existe sem `CashRegister` OPEN — `Tab` (comanda) segue a mesma regra
 - PDV: fechamento de caixa não persiste nenhum total (`expectedAmount`, `soldTotal`, `difference`...) — sempre recalculado na hora
 - PDV: fiado é ação separada, NÃO é `PaymentMethod` — assim toda soma sobre `PaymentMethod` é dinheiro que entrou de verdade

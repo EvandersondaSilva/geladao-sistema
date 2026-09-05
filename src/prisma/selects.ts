@@ -1,3 +1,32 @@
+// Never includes `password` — every route that returns a User goes through
+// this, so a hash can't leak by a future select accidentally spreading `...`.
+export const userSelect = {
+  id: true,
+  name: true,
+  email: true,
+  role: true,
+  active: true,
+  createdAt: true,
+} as const;
+
+// The `{ id, name }` shape joined onto CashRegister/Tab/DebtPayment to show who
+// performed the action — same idea as tabItemSelect.product below.
+export const authorSelect = {
+  id: true,
+  name: true,
+} as const;
+
+export const cashRegisterSelect = {
+  id: true,
+  status: true,
+  openingAmount: true,
+  reportedClosingAmount: true,
+  openedAt: true,
+  closedAt: true,
+  openedBy: { select: authorSelect },
+  closedBy: { select: authorSelect },
+} as const;
+
 export const customerSelect = {
   id: true,
   name: true,
@@ -11,6 +40,7 @@ export const debtPaymentSelect = {
   amount: true,
   paymentMethod: true,
   cashRegisterId: true,
+  receivedBy: { select: authorSelect },
   createdAt: true,
 } as const;
 
@@ -52,6 +82,7 @@ export const tabSelect = {
   paymentMethod: true,
   openedAt: true,
   closedAt: true,
+  closedBy: { select: authorSelect },
   items: {
     where: { cancelledAt: null },
     select: tabItemSelect,

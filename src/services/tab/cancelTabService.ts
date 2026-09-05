@@ -3,8 +3,13 @@ import { AppError } from "../../errors/AppError";
 import { tabSelect } from "../../prisma/selects";
 import { presentTab } from "./presentTab";
 
+interface CancelTabRequest {
+  id: string;
+  closedById: string;
+}
+
 class CancelTabService {
-  async execute(id: string) {
+  async execute({ id, closedById }: CancelTabRequest) {
     try {
       const tab = await prismaClient.$transaction(async (tx) => {
         const current = await tx.tab.findUnique({
@@ -44,7 +49,7 @@ class CancelTabService {
         // tabs this endpoint exists to clean up stuck forever.
         return tx.tab.update({
           where: { id },
-          data: { status: "CANCELLED", closedAt: new Date() },
+          data: { status: "CANCELLED", closedAt: new Date(), closedById },
           select: tabSelect,
         });
       });

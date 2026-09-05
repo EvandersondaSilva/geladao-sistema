@@ -8,10 +8,11 @@ interface PayDebtRequest {
   amount: number;
   paymentMethod: "CASH" | "CARD" | "PIX";
   cashRegisterId: string;
+  receivedById: string;
 }
 
 class PayDebtService {
-  async execute({ id, amount, paymentMethod, cashRegisterId }: PayDebtRequest) {
+  async execute({ id, amount, paymentMethod, cashRegisterId, receivedById }: PayDebtRequest) {
     try {
       const debt = await prismaClient.$transaction(async (tx) => {
         const current = await tx.debt.findUnique({
@@ -52,7 +53,7 @@ class PayDebtService {
         }
 
         await tx.debtPayment.create({
-          data: { debtId: id, amount, paymentMethod, cashRegisterId },
+          data: { debtId: id, amount, paymentMethod, cashRegisterId, receivedById },
         });
 
         // partial payments are allowed, so the debt only closes when nothing is left

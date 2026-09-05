@@ -1,12 +1,14 @@
 import prismaClient from "../../prisma";
 import { AppError } from "../../errors/AppError";
+import { cashRegisterSelect } from "../../prisma/selects";
 
 interface OpenCashRegisterRequest {
   openingAmount: number;
+  openedById: string;
 }
 
 class OpenCashRegisterService {
-  async execute({ openingAmount }: OpenCashRegisterRequest) {
+  async execute({ openingAmount, openedById }: OpenCashRegisterRequest) {
     try {
       // Serializable: checking "is there an open cash register" and inserting
       // must be atomic, otherwise two concurrent requests open two registers.
@@ -22,13 +24,8 @@ class OpenCashRegisterService {
           }
 
           return tx.cashRegister.create({
-            data: { openingAmount },
-            select: {
-              id: true,
-              status: true,
-              openingAmount: true,
-              openedAt: true,
-            },
+            data: { openingAmount, openedById },
+            select: cashRegisterSelect,
           });
         },
         { isolationLevel: "Serializable" }

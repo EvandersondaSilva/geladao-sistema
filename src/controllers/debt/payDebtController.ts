@@ -8,7 +8,13 @@ class PayDebtController {
 
     const payDebtService = new PayDebtService();
 
-    const debt = await payDebtService.execute({ id: debtId, amount, paymentMethod, cashRegisterId });
+    const debt = await payDebtService.execute({
+      id: debtId,
+      amount,
+      paymentMethod,
+      cashRegisterId,
+      receivedById: req.userId as string,
+    });
 
     res.status(201).json(debt);
   }

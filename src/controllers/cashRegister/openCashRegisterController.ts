@@ -7,7 +7,10 @@ class OpenCashRegisterController {
 
     const openCashRegister = new OpenCashRegisterService();
 
-    const cashRegister = await openCashRegister.execute({ openingAmount });
+    const cashRegister = await openCashRegister.execute({
+      openingAmount,
+      openedById: req.userId as string,
+    });
 
     res.status(201).json(cashRegister);
   }
